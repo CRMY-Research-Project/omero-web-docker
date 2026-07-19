@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Download Access Requests</title>
+    <link rel="stylesheet" type="text/css" href="{% static 'omero_download_gate/css/gate.css' %}">
+</head>
+<body>
+    {% csrf_token %}
+
+    <div class="page-container">
+        <header>
+            <h1>Download Access</h1>
+            <p>
+                Downloads of dataset images require approval. Submit a request
+                with your supporting documents (e.g. ethics approval, project
+                proposal); an administrator will review it.
+            </p>
+            {% if is_admin %}
+            <p><a href="{% url 'omero_download_gate_review' %}">Administrator: review pending requests →</a></p>
+            {% endif %}
+        </header>
+
+        <section class="card">
+            <h2>New request</h2>
+            <form id="request-form">
+                <div class="field">
+                    <label for="target-type">Requesting access to</label>
+                    <select id="target-type" name="target_type">
+                        <option value="dataset">A whole dataset</option>
+                        <option value="image">A single image</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="target-id">Dataset / image ID</label>
+                    <input type="number" id="target-id" name="target_id" min="1" required
+                           placeholder="Numeric ID shown in the webclient URL">
+                </div>
+                <div class="field">
+                    <label for="reason">Reason for access</label>
+                    <textarea id="reason" name="reason" rows="4"
+                              placeholder="Project, intended use, approval references..."></textarea>
+                </div>
+                <div class="field">
+                    <label for="docs">Supporting documents (pdf, doc, docx, txt, png, jpg)</label>
+                    <input type="file" id="docs" multiple
+                           accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg">
+                </div>
+                <button type="submit" id="submit-btn">Submit request</button>
+                <div id="form-message" class="message" hidden></div>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>My requests</h2>
+            <div id="requests-list">Loading…</div>
+        </section>
+    </div>
+
+    <script>
+        const csrftoken = document.querySelector("input[name='csrfmiddlewaretoken']").value;
+        const requestUrl = "{% url 'omero_download_gate_request' %}";
+        const mineUrl = "{% url 'omero_download_gate_mine' %}";
+        // download/files URLs carry a dummy id replaced client-side
+        const filesUrlTemplate = "{% url 'omero_download_gate_files' image_id=0 %}";
+        const downloadUrlTemplate = "{% url 'omero_download_gate_download' image_id=0 %}";
+        const docUrlBase = window.location.pathname.replace(/\/$/, "") + "/doc/";
+
+        function filesUrl(imageId) {
+            return filesUrlTemplate.replace("/0/", "/" + imageId + "/");
+        }
+        function downloadUrl(imageId, fileId) {
+            const base = downloadUrlTemplate.replace("/0/", "/" + imageId + "/");
+            return fileId ? base + "?file_id=" + fileId : base;
+        }
+
+        function statusChip(status) {
+            return '<span class="chip chip-' + status + '">' + status + '</span>';
+        }
+
+        function renderRequest(req) {
+            let html = '<div class="request-row">';
+            html += statusChip(req.status);
+            html += ' <strong>' + req.target_type + ' #' + req.target_id + '</strong>';
+            html += ' <span class="muted">requested ' + new Date(req.created_at).toLocaleString() + '</span>';
+            if (req.review_note) {
+                html += '<div class="muted">Reviewer note: ' + escapeHtml(req.review_note) + '</div>';
+            }
+            if (req.expires_at) {
+                html += '<div class="muted">Access expires: ' + new Date(req.expires_at).toLocaleString() + '</div>';
+            }
+            if (req.documents.length > 0) {
+                html += '<div class="muted">Documents: ' + req.documents.map(d =>
+                    '<a href="' + docUrlBase + req.id + '/' + encodeURIComponent(d) + '">' + escapeHtml(d) + '</a>'
+                ).join(', ') + '</div>';
+            }
+            if (req.status === 'approved' && req.target_type === 'image') {
+                html += '<div><a href="' + downloadUrl(req.target_id) + '">Download original file</a></div>';
+            }
+            if (req.status === 'approved' && req.target_type === 'dataset') {
+                html += '<div class="muted">Approved: use the download link on each image, e.g. '
+                     + '<code>' + downloadUrl('&lt;image-id&gt;') + '</code></div>';
+            }
+            html += '</div>';
+            return html;
+        }
+
+        function escapeHtml(s) {
+            const div = document.createElement('div');
+            div.textContent = s;
+            return div.innerHTML;
+        }
+
+        function loadRequests() {
+            fetch(mineUrl)
+                .then(res => res.json())
+                .then(data => {
+                    const el = document.getElementById('requests-list');
+                    if (!data.requests || data.requests.length === 0) {
+                        el.innerHTML = '<p class="muted">No requests yet.</p>';
+                        return;
+                    }
+                    el.innerHTML = data.requests.map(renderRequest).join('');
+                })
+                .catch(() => {
+                    document.getElementById('requests-list').textContent =
+                        'Could not load requests.';
+                });
+        }
+
+        document.getElementById('request-form').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const btn = document.getElementById('submit-btn');
+            const msg = document.getElementById('form-message');
+            btn.disabled = true;
+            msg.hidden = true;
+
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', csrftoken);
+            formData.append('target_type', document.getElementById('target-type').value);
+            formData.append('target_id', document.getElementById('target-id').value);
+            formData.append('reason', document.getElementById('reason').value);
+            [...document.getElementById('docs').files].forEach((f, i) => {
+                formData.append('doc' + i, f);
+            });
+
+            fetch(requestUrl, { method: 'POST', body: formData })
+                .then(res => res.json().then(data => ({ ok: res.ok, data })))
+                .then(({ ok, data }) => {
+                    if (!ok || data.success === false) {
+                        throw new Error((data.error && data.error.message) || 'Request failed');
+                    }
+                    msg.textContent = 'Request submitted - an administrator will review it.';
+                    msg.className = 'message ok';
+                    msg.hidden = false;
+                    document.getElementById('request-form').reset();
+                    loadRequests();
+                })
+                .catch(err => {
+                    msg.textContent = err.message;
+                    msg.className = 'message err';
+                    msg.hidden = false;
+                })
+                .finally(() => { btn.disabled = false; });
+        });
+
+        loadRequests();
+    </script>
+</body>
+</html>

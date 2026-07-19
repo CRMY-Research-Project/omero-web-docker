@@ -1,0 +1,3 @@
+include README.md
+recursive-include omero_download_gate/templates *
+recursive-include omero_download_gate/static *

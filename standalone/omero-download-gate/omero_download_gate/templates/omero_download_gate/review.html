@@ -1,0 +1,185 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Data-access governance · Review</title>
+    <link rel="stylesheet" type="text/css"
+          href="{% static 'omero_download_gate/css/console.css' %}">
+</head>
+<body>
+    {% csrf_token %}
+
+    <!-- Endpoint URLs as data (application/json is not executable; CSP-safe).
+         console.js reads these by id and JSON.parse()s the textContent. -->
+    <script id="gate-config" type="application/json">{
+      "index": "{% url 'omero_download_gate_index' %}",
+      "reviewList": "{% url 'omero_download_gate_review_list' %}",
+      "reviewAction": "{% url 'omero_download_gate_review_action' %}",
+      "grants": "{% url 'omero_download_gate_grants' %}",
+      "grantRevoke": "{% url 'omero_download_gate_grant_revoke' %}",
+      "audit": "{% url 'omero_download_gate_audit' %}"
+    }</script>
+    {{ doc_types|json_script:"gate-doctypes" }}
+
+    <main class="console">
+        <header class="console-header">
+            <div>
+                <h1>Data-access governance</h1>
+                <p class="muted">Review requests, grant scoped access, manage
+                    dataset policies, and audit every decision.</p>
+            </div>
+            <div class="header-actions">
+                <button id="refresh-btn" class="btn-icon" type="button"
+                        aria-label="Refresh the current tab">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="2" stroke-linecap="round"
+                         stroke-linejoin="round" aria-hidden="true">
+                        <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/>
+                    </svg>
+                </button>
+                <button id="theme-toggle" class="btn-icon" type="button"
+                        aria-label="Toggle light or dark theme"></button>
+                <a class="grow-link" href="{% url 'omero_download_gate_index' %}">&larr; Downloads</a>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <div id="tablist" class="tablist" role="tablist"
+                 aria-label="Governance sections">
+                <button class="tab" role="tab" id="tab-requests" type="button"
+                        aria-controls="panel-requests" aria-selected="true"
+                        tabindex="0">Requests</button>
+                <button class="tab" role="tab" id="tab-grants" type="button"
+                        aria-controls="panel-grants" aria-selected="false"
+                        tabindex="-1">Grants</button>
+                <button class="tab" role="tab" id="tab-policies" type="button"
+                        aria-controls="panel-policies" aria-selected="false"
+                        tabindex="-1">Policies</button>
+                <button class="tab" role="tab" id="tab-audit" type="button"
+                        aria-controls="panel-audit" aria-selected="false"
+                        tabindex="-1">Audit</button>
+                <span id="tab-underline" class="tab-underline" aria-hidden="true"></span>
+            </div>
+        </div>
+
+        <!-- Requests -->
+        <section id="panel-requests" class="tabpanel" role="tabpanel"
+                 aria-labelledby="tab-requests" tabindex="0">
+            <div class="section-label">Pending requests</div>
+            <div id="pending-list"></div>
+            <div class="section-label">Recently reviewed</div>
+            <div id="reviewed-list"></div>
+        </section>
+
+        <!-- Grants -->
+        <section id="panel-grants" class="tabpanel" role="tabpanel"
+                 aria-labelledby="tab-grants" hidden tabindex="0">
+            <div class="filters">
+                <div class="field">
+                    <label for="grants-principal" class="muted">Principal</label>
+                    <input id="grants-principal" type="text"
+                           placeholder="username or group:name">
+                </div>
+                <label class="choice">
+                    <input id="grants-active-only" type="checkbox"> Active only
+                </label>
+                <button id="grants-apply" class="btn btn-secondary" type="button">Apply</button>
+            </div>
+            <div id="grants-table-wrap" class="table-scroll"></div>
+        </section>
+
+        <!-- Policies -->
+        <section id="panel-policies" class="tabpanel" role="tabpanel"
+                 aria-labelledby="tab-policies" hidden tabindex="0">
+            <div class="filters">
+                <div class="field">
+                    <label for="policy-dataset-id" class="muted">Dataset ID</label>
+                    <input id="policy-dataset-id" type="number" min="1"
+                           placeholder="numeric dataset id">
+                </div>
+                <button id="policy-load" class="btn btn-secondary" type="button">Load policy</button>
+            </div>
+            <div id="policy-status" class="muted"></div>
+            <div id="policy-form" class="policy-form" hidden>
+                <div id="policy-default-approvers" class="default-approvers"></div>
+                <div class="field">
+                    <label for="policy-approvers" class="section-label">Approver
+                        principals</label>
+                    <input id="policy-approvers" type="text"
+                           placeholder="comma-separated usernames or group:name">
+                </div>
+                <div class="field">
+                    <span class="section-label">Required documents</span>
+                    <div id="policy-required-docs" class="choice-group"></div>
+                </div>
+                <div class="inline-field">
+                    <label for="policy-expiry-days" class="muted">Default expiry (days)</label>
+                    <input id="policy-expiry-days" type="number" min="1"
+                           placeholder="blank = standing">
+                </div>
+                <label class="choice">
+                    <input id="policy-auto-expire" type="checkbox" checked>
+                    Auto-expire grants at the deadline
+                </label>
+                <div class="btn-row">
+                    <button id="policy-save" class="btn btn-primary" type="button">Save policy</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Audit -->
+        <section id="panel-audit" class="tabpanel" role="tabpanel"
+                 aria-labelledby="tab-audit" hidden tabindex="0">
+            <div class="filters">
+                <div class="field">
+                    <label for="audit-action" class="muted">Action</label>
+                    <select id="audit-action">
+                        <option value="">All actions</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="audit-limit" class="muted">Limit</label>
+                    <input id="audit-limit" type="number" min="1" value="200">
+                </div>
+                <button id="audit-load" class="btn btn-secondary" type="button">Load</button>
+            </div>
+            <div id="audit-table-wrap" class="table-scroll"></div>
+        </section>
+    </main>
+
+    <!-- Detail drawer (requests) -->
+    <div id="drawer-backdrop" class="drawer-backdrop" data-open="false"></div>
+    <aside id="drawer" class="drawer" data-open="false" role="dialog"
+           aria-modal="true" aria-labelledby="drawer-title">
+        <div class="drawer-head">
+            <h2 id="drawer-title">Request</h2>
+            <button id="drawer-close" class="btn-icon" type="button"
+                    aria-label="Close panel">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                    <path d="M18 6 6 18M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div id="drawer-body" class="drawer-body"></div>
+    </aside>
+
+    <!-- Revoke confirmation modal -->
+    <div id="modal-backdrop" class="modal-backdrop" data-open="false">
+        <div id="modal" class="modal" role="dialog" aria-modal="true"
+             aria-labelledby="modal-title" aria-describedby="modal-desc">
+            <h2 id="modal-title">Revoke grant</h2>
+            <p id="modal-desc" class="muted"></p>
+            <label for="modal-reason" class="section-label">Reason (optional)</label>
+            <textarea id="modal-reason" rows="3"></textarea>
+            <div class="btn-row">
+                <button id="modal-cancel" class="btn btn-secondary" type="button">Cancel</button>
+                <button id="modal-confirm" class="btn btn-danger" type="button">Revoke access</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{% static 'omero_download_gate/js/console.js' %}"></script>
+</body>
+</html>

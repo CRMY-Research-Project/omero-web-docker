@@ -2,157 +2,261 @@
 <html>
     <head>
         <title>OMERO Web Import</title>
-        <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+        <!-- No external CDNs: framework-free, system fonts, inline SVG icons.
+             Keeps the portal working offline / behind strict egress and
+             removes the supply-chain exposure of CDN-hosted scripts. -->
         <link rel="stylesheet" type="text/css" href="{% static 'omero_webimport/css/webimport.css' %}">
+        <style>
+            body { font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+            .upload-icon svg { width: 48px; height: 48px; fill: currentColor; }
+            [hidden] { display: none !important; }
+        </style>
     </head>
     <body>
         {% csrf_token %}
-        
+
         <div class="page-container">
             <header>
                 <h1>OMERO Web Import</h1>
                 <p>Upload and import images to your OMERO instance</p>
             </header>
 
-            <!-- We need verbatim so that we can add brackets for vue.js and they are ignored by django -->
-            {% verbatim %}
-            <div id="app" v-cloak>
-                <div class="upload-container">
-                    <div class="upload-area" @drop.prevent="addFile" @dragover.prevent @click="triggerFileInput">
-                        <input type="file" ref="fileInput" multiple style="display: none" @change="onFileInputChange">
-                        <div class="upload-icon">
-                            <i class="fas fa-cloud-upload-alt"></i>
-                        </div>
-                        <h2>Drag Files Here</h2>
-                        <p>Drop your image files to upload them to OMERO or click to select files</p>
+            <div class="upload-container">
+                <div id="upload-area" class="upload-area">
+                    <input type="file" id="file-input" multiple style="display: none">
+                    <div class="upload-icon">
+                        <!-- inline cloud-upload icon (was Font Awesome) -->
+                        <svg viewBox="0 0 640 512" aria-hidden="true"><path d="M537.6 226.6c4.1-10.7 6.4-22.4 6.4-34.6 0-53-43-96-96-96-19.7 0-38.1 6-53.3 16.2C367 64.2 315.3 32 256 32c-88.4 0-160 71.6-160 160 0 2.7 .1 5.4 .2 8.1C40.2 219.8 0 273.2 0 336c0 79.5 64.5 144 144 144h368c70.7 0 128-57.3 128-128 0-61.9-44-113.6-102.4-125.4zM393.4 288H320v96c0 8.8-7.2 16-16 16h-32c-8.8 0-16-7.2-16-16v-96h-73.4c-14.3 0-21.4-17.2-11.3-27.3l105.4-105.4c6.2-6.2 16.4-6.2 22.6 0l105.4 105.4c10.1 10.1 2.9 27.3-11.3 27.3z"/></svg>
                     </div>
-
-                    <div class="files-list" v-if="files.length > 0">
-                        <h3>Files to Upload</h3>
-                        <ul>
-                            <li v-for="file in files" class="file-item">
-                                <div class="file-info">
-                                    <i class="fas fa-file-image"></i>
-                                    <span class="file-name">{{ file.name }}</span>
-                                    <span class="file-size">({{ file.size | kb }} kb)</span>
-                                </div>
-                                <button @click="removeFile(file)" class="remove-btn" title="Remove">
-                                    <i class="fas fa-times"></i>
-                                </button>
-                            </li>
-                        </ul>
-                    </div>
-
-                    <div class="actions">
-                        <button :disabled="uploadDisabled" @click="upload" class="import-btn">
-                            <i class="fas fa-upload"></i> Import
-                        </button>
-                    </div>
+                    <h2>Drag Files Here</h2>
+                    <p>Drop your image files to upload them to OMERO or click to select files</p>
                 </div>
+
+                <div id="files-list" class="files-list" hidden>
+                    <h3>Files to Upload</h3>
+                    <ul id="files-ul"></ul>
+                </div>
+
+                <div class="dataset-select">
+                    <label for="dataset-target">Import into dataset:</label>
+                    <select id="dataset-target">
+                        <option value="">— Unassigned (no dataset) —</option>
+                    </select>
+                </div>
+
+                <div class="actions">
+                    <button id="import-btn" class="import-btn" disabled>Import</button>
+                </div>
+
+                <div id="upload-progress" class="upload-progress" style="margin-top: 12px;" hidden></div>
+                <div id="upload-error" class="upload-error" style="color: #b00020; margin-top: 12px;" hidden></div>
             </div>
-            {% endverbatim %}
         </div>
-        
+
         <script>
-            let csrftoken = document.querySelector("input[name='csrfmiddlewaretoken']").value;
-            // Set the import URL outside of Vue
-            let import_url = "{% url 'omero_webimport_import' %}";
-            
-            Vue.config.productionTip = false;
-            Vue.config.devtools = false;
+            (function () {
+                const csrftoken = document.querySelector("input[name='csrfmiddlewaretoken']").value;
+                const datasets_url = "{% url 'omero_webimport_datasets' %}";
+                const begin_url = "{% url 'omero_webimport_begin' %}";
+                const chunk_url = "{% url 'omero_webimport_chunk' %}";
+                const complete_url = "{% url 'omero_webimport_complete' %}";
 
-            Vue.filter('kb', val => {
-                return Math.floor(val/1024);  
-            });
+                // 64 MiB chunks: large enough to amortise request overhead,
+                // small enough that a dropped connection only retries one chunk.
+                const CHUNK_SIZE = 64 * 1024 * 1024;
+                const CHUNK_RETRIES = 3;
 
-            const app = new Vue({
-                el:'#app', 
-                data: {
-                    files:[],
-                    uploading: false
-                },
-                computed: {
-                    uploadDisabled() {
-                        return this.files.length === 0 || this.uploading;
+                const el = {
+                    area: document.getElementById("upload-area"),
+                    fileInput: document.getElementById("file-input"),
+                    filesList: document.getElementById("files-list"),
+                    filesUl: document.getElementById("files-ul"),
+                    datasetSelect: document.getElementById("dataset-target"),
+                    importBtn: document.getElementById("import-btn"),
+                    progress: document.getElementById("upload-progress"),
+                    error: document.getElementById("upload-error"),
+                };
+
+                let files = [];
+                let uploading = false;
+
+                function escapeHtml(s) {
+                    const d = document.createElement("div");
+                    d.textContent = s;
+                    return d.innerHTML;
+                }
+
+                function render() {
+                    el.filesList.hidden = files.length === 0;
+                    el.filesUl.innerHTML = "";
+                    files.forEach((file, i) => {
+                        const li = document.createElement("li");
+                        li.className = "file-item";
+                        const kb = Math.floor(file.size / 1024);
+                        li.innerHTML =
+                            '<div class="file-info">' +
+                            '<span class="file-name">' + escapeHtml(file.name) + "</span> " +
+                            '<span class="file-size">(' + kb + " kb)</span></div>" +
+                            '<button class="remove-btn" title="Remove" aria-label="Remove ' +
+                            escapeHtml(file.name) + '">&times;</button>';
+                        li.querySelector(".remove-btn").addEventListener("click", () => {
+                            if (uploading) return;
+                            files.splice(i, 1);
+                            render();
+                        });
+                        el.filesUl.appendChild(li);
+                    });
+                    el.importBtn.disabled = files.length === 0 || uploading;
+                }
+
+                function addFiles(fileList) {
+                    if (!fileList) return;
+                    Array.from(fileList).forEach((f) => files.push(f));
+                    render();
+                }
+
+                el.area.addEventListener("click", () => el.fileInput.click());
+                el.area.addEventListener("dragover", (e) => e.preventDefault());
+                el.area.addEventListener("drop", (e) => {
+                    e.preventDefault();
+                    addFiles(e.dataTransfer.files);
+                });
+                el.fileInput.addEventListener("change", (e) => {
+                    addFiles(e.target.files);
+                    el.fileInput.value = ""; // allow re-selecting the same file
+                });
+
+                // Populate the dataset dropdown
+                fetch(datasets_url)
+                    .then((res) => (res.ok ? res.json() : { datasets: [] }))
+                    .then((res) => {
+                        (res.datasets || []).forEach((d) => {
+                            const opt = document.createElement("option");
+                            opt.value = d.id;
+                            opt.textContent = d.name + " (#" + d.id + ")";
+                            el.datasetSelect.appendChild(opt);
+                        });
+                    })
+                    .catch(() => {});
+
+                function setProgress(text) {
+                    el.progress.hidden = !text;
+                    el.progress.textContent = text || "";
+                }
+                function setError(text) {
+                    el.error.hidden = !text;
+                    el.error.textContent = text || "";
+                }
+
+                async function postForm(url, formData) {
+                    formData.append("csrfmiddlewaretoken", csrftoken);
+                    const res = await fetch(url, { method: "POST", body: formData });
+                    const text = await res.text();
+                    let data;
+                    try {
+                        data = JSON.parse(text);
+                    } catch (e) {
+                        throw new Error(res.ok ? "Invalid server response" : "Server error: " + res.status);
                     }
-                },
-                methods:{
-                    triggerFileInput() {
-                        this.$refs.fileInput.click();
-                    },
-                    onFileInputChange(e) {
-                        const selectedFiles = e.target.files;
-                        if(!selectedFiles) return;
-                        
-                        ([...selectedFiles]).forEach(f => {
-                            this.files.push(f);
-                        });
-                        
-                        // Reset file input so the same file can be selected again if needed
-                        this.$refs.fileInput.value = '';
-                    },
-                    addFile(e) {
-                        let droppedFiles = e.dataTransfer.files;
-                        if(!droppedFiles) return;
-                        ([...droppedFiles]).forEach(f => {
-                            this.files.push(f);
-                        });
-                    },
-                    removeFile(file){
-                        this.files = this.files.filter(f => {
-                            return f != file;
-                        });      
-                    },
-                    upload() {
-                        this.uploading = true;
-                        
-                        let formData = new FormData();
-                        this.files.forEach((f,x) => {
-                            formData.append('file'+(x), f);
-                        });
+                    if (!res.ok || data.success === false) {
+                        throw new Error((data.error && data.error.message) || "Server error: " + res.status);
+                    }
+                    return data;
+                }
 
-                        formData.append('csrfmiddlewaretoken', csrftoken);
+                async function sendChunk(uploadId, fileIndex, chunkIndex, blob, filename) {
+                    let lastError;
+                    for (let attempt = 1; attempt <= CHUNK_RETRIES; attempt++) {
+                        try {
+                            const fd = new FormData();
+                            fd.append("upload_id", uploadId);
+                            fd.append("file_index", fileIndex);
+                            fd.append("chunk_index", chunkIndex);
+                            fd.append("filename", filename);
+                            fd.append("chunk", blob, filename + ".part");
+                            return await postForm(chunk_url, fd);
+                        } catch (e) {
+                            lastError = e;
+                            console.warn("Chunk " + chunkIndex + " attempt " + attempt + " failed:", e);
+                            await new Promise((r) => setTimeout(r, 1000 * attempt));
+                        }
+                    }
+                    throw lastError;
+                }
 
-                        console.log('Sending to URL:', import_url);
-                        console.log('Files to upload:', this.files.length);
-
-                        fetch(import_url, {
-                            method: 'POST',
-                            body: formData
-                        })
-                        .then(res => {
-                            // Check if response is ok before parsing JSON
-                            if (!res.ok) {
-                                console.error('Server error:', res.status, res.statusText);
-                                throw new Error(`Server error: ${res.status}`);
-                            }
-                            return res.text().then(text => {
-                                try {
-                                    // Try to parse as JSON
-                                    return JSON.parse(text);
-                                } catch (e) {
-                                    // If parsing fails, log the raw response and throw error
-                                    console.error('Invalid JSON response:', text);
-                                    throw new Error('Invalid server response');
-                                }
-                            });
-                        })
-                        .then(res => {
-                            console.log('done uploading', res);
-                            alert('Upload complete! Imported ' + res.image_ids.length + ' images.');
-                            this.files = [];
-                            this.uploading = false;
-                        })
-                        .catch(e => {
-                            console.error('Upload error:', e);
-                            alert('Error uploading files: ' + e.message);
-                            this.uploading = false;
-                        });
+                async function pollImport(statusUrl) {
+                    // statusUrl is relative to this page (e.g. "upload/status/<id>/")
+                    const url = new URL(statusUrl, window.location.href).toString();
+                    for (;;) {
+                        await new Promise((r) => setTimeout(r, 3000));
+                        let data;
+                        try {
+                            const res = await fetch(url, { headers: { Accept: "application/json" } });
+                            data = await res.json();
+                        } catch (e) {
+                            continue; // transient; keep polling
+                        }
+                        if (data.status === "done") return data;
+                        if (data.status === "failed") {
+                            throw new Error(data.error || "Import failed");
+                        }
+                        // still running
                     }
                 }
-            });
+
+                async function upload() {
+                    uploading = true;
+                    render();
+                    setError("");
+                    try {
+                        const begin = await postForm(begin_url, new FormData());
+                        const uploadId = begin.upload_id;
+
+                        for (let fi = 0; fi < files.length; fi++) {
+                            const file = files[fi];
+                            const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+                            for (let ci = 0; ci < totalChunks; ci++) {
+                                setProgress(
+                                    "Uploading " + file.name + ": chunk " + (ci + 1) + "/" + totalChunks +
+                                    " (file " + (fi + 1) + " of " + files.length + ")"
+                                );
+                                const blob = file.slice(ci * CHUNK_SIZE, (ci + 1) * CHUNK_SIZE);
+                                await sendChunk(uploadId, fi, ci, blob, file.name);
+                            }
+                        }
+
+                        setProgress("Importing into OMERO (this can take a while for large images)…");
+                        const fd = new FormData();
+                        fd.append("upload_id", uploadId);
+                        if (el.datasetSelect.value !== "") {
+                            fd.append("dataset_id", el.datasetSelect.value);
+                        }
+                        const res = await postForm(complete_url, fd);
+
+                        // Async: server returns a job to poll. Synchronous
+                        // fallback (WEBIMPORT_ASYNC=0) returns image_ids directly.
+                        let result = res;
+                        if (res.job_id) {
+                            result = await pollImport(res.status_url);
+                        }
+
+                        let msg = "Upload complete! Imported " + result.image_ids.length + " images.";
+                        if (result.warning) msg += "\n" + result.warning;
+                        alert(msg);
+                        files = [];
+                    } catch (e) {
+                        console.error("Upload error:", e);
+                        setError(e.message);
+                    } finally {
+                        setProgress("");
+                        uploading = false;
+                        render();
+                    }
+                }
+
+                el.importBtn.addEventListener("click", upload);
+                render();
+            })();
         </script>
     </body>
 </html>

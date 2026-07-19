@@ -26,4 +26,17 @@ urlpatterns = [
 
     # POST files to import
     re_path(r'^import/$', views.submit_import, name="omero_webimport_import"),
+
+    # GET datasets the user can import into (for the target dropdown)
+    re_path(r'^datasets/$', views.datasets, name="omero_webimport_datasets"),
+
+    # chunked upload flow (large files, retryable chunks - TC-19)
+    re_path(r'^upload/begin/$', views.begin_upload,
+            name="omero_webimport_begin"),
+    re_path(r'^upload/chunk/$', views.upload_chunk,
+            name="omero_webimport_chunk"),
+    re_path(r'^upload/complete/$', views.complete_upload,
+            name="omero_webimport_complete"),
+    re_path(r'^upload/status/(?P<job_id>[0-9a-f]{32})/$',
+            views.import_status, name="omero_webimport_status"),
 ]

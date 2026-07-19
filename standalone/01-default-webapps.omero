@@ -36,6 +36,10 @@ config set -- omero.web.ui.top_links '[["Data", "webindex", {"title": "Browse Da
 config append omero.web.apps '"omero_webimport"'
 config append omero.web.ui.top_links '["Webimport", "omero_webimport_index", {"title": "Upload images", "target": "_blank"}]'
 
+# Download approval gate (FR6: downloads restricted to approved users)
+config append omero.web.apps '"omero_download_gate"'
+config append omero.web.ui.top_links '["Downloads", "omero_download_gate_index", {"title": "Request download access"}]'
+
 config append omero.web.ui.top_links '["Tag Search", "tagsearch"]'
 
 

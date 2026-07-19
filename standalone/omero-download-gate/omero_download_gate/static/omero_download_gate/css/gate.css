@@ -1,0 +1,159 @@
+/* =========================================================================
+   Download gate — user request/tracking page (index.html)
+   "Specimen Archive" design language, matching the governance console.
+   No CDN: OS font stacks with a self-hosted @font-face seam (see
+   docs/design-system.md). Tokens duplicated here so this page is themed
+   without an extra request.
+   ========================================================================= */
+:root {
+  --font-display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua",
+                  Palatino, Charter, Constantia, Georgia, serif;
+  --font-sans: "Optima", "Gill Sans Nova", "Gill Sans", Corbel, "Avenir Next",
+               "Segoe UI Historic", sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", "IBM Plex Mono", "SF Mono",
+               Consolas, "DejaVu Sans Mono", ui-monospace, monospace;
+
+  --paper: #F1EDE3; --surface: #FBF9F3; --surface-2: #E9E3D5;
+  --ink: #182A31; --ink-soft: #566368; --ink-faint: #8A938F;
+  --line: #D8D0BF; --line-strong: #C3B8A1;
+  --brass: #0F7C6B; --brass-deep: #0B5D50; --brass-tint: #DCEAE4;
+  --mulberry: #9C3A57; --mulberry-deep: #7E2B45; --mulberry-tint: #F3E1E6;
+  --ochre: #A8761B; --ochre-tint: #F1E7CF;
+
+  --r-xs: 2px; --r: 6px; --r-lg: 12px; --r-pill: 999px;
+  --shadow-2: 0 1px 0 var(--line), 0 12px 34px -20px rgba(16,26,30,.55);
+  --ease: cubic-bezier(.2,.7,.2,1); --dur-2: 200ms;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #101A1E; --surface: #172329; --surface-2: #1E2C33;
+    --ink: #ECE6D8; --ink-soft: #A6B0AF; --ink-faint: #6E7B7A;
+    --line: #2A383E; --line-strong: #3A4A50;
+    --brass: #3FB6A1; --brass-deep: #2C8E7E; --brass-tint: #123A34;
+    --mulberry: #D67C92; --mulberry-deep: #E79BAD; --mulberry-tint: #3A2029;
+    --ochre: #DDA748; --ochre-tint: #372A12;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #101A1E; --surface: #172329; --surface-2: #1E2C33;
+  --ink: #ECE6D8; --ink-soft: #A6B0AF; --ink-faint: #6E7B7A;
+  --line: #2A383E; --line-strong: #3A4A50;
+  --brass: #3FB6A1; --brass-deep: #2C8E7E; --brass-tint: #123A34;
+  --mulberry: #D67C92; --mulberry-deep: #E79BAD; --mulberry-tint: #3A2029;
+  --ochre: #DDA748; --ochre-tint: #372A12;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.page-container {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: var(--sp-5, 24px) 16px 64px;
+}
+
+header h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: .01em;
+  margin: 0 0 4px;
+}
+header p { color: var(--ink-soft); margin: 6px 0; }
+a { color: var(--brass); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  padding: 22px;
+  margin-top: 22px;
+}
+.card h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  margin: 0 0 14px;
+  font-size: 1.15rem;
+}
+
+.field { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
+.field label {
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--ink-soft);
+}
+.field input,
+.field select,
+.field textarea {
+  padding: 9px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+.field input:focus-visible,
+.field select:focus-visible,
+.field textarea:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 1px;
+  border-color: var(--brass);
+}
+
+button {
+  background: var(--brass);
+  color: var(--paper);
+  border: 1px solid var(--brass);
+  border-radius: var(--r);
+  padding: 9px 20px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+}
+button:hover { background: var(--brass-deep); }
+button:active { transform: translateY(1px); }
+button:disabled { opacity: .55; cursor: not-allowed; }
+button.deny { background: var(--mulberry); border-color: var(--mulberry); }
+button.deny:hover { background: var(--mulberry-deep); }
+
+.message { margin-top: 12px; padding: 10px 12px; border-radius: var(--r); border-left: 3px solid transparent; }
+.message.ok  { background: var(--brass-tint);    color: var(--ink); border-left-color: var(--brass); }
+.message.err { background: var(--mulberry-tint); color: var(--ink); border-left-color: var(--mulberry); }
+
+.request-row { border-top: 1px solid var(--line); padding: 14px 0; }
+.request-row:first-child { border-top: none; }
+
+.muted { color: var(--ink-soft); font-size: .9rem; }
+code { font-family: var(--font-mono); background: var(--surface-2); padding: 1px 5px; border-radius: var(--r-xs); }
+
+/* Status chips — the "specimen label": sharp corners, a left colour bar. */
+.chip {
+  display: inline-block;
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
+  font-size: .68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 2px 8px 2px 6px;
+  margin-right: 6px;
+  border-left: 3px solid var(--line-strong);
+}
+.chip-pending  { background: var(--ochre-tint);    border-left-color: var(--ochre); }
+.chip-approved { background: var(--brass-tint);    border-left-color: var(--brass); }
+.chip-denied   { background: var(--mulberry-tint); border-left-color: var(--mulberry); }
+
+.review-controls { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.review-controls .note-input { flex: 1 1 220px; }
