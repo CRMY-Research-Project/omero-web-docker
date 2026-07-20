@@ -14,7 +14,8 @@ RUN /opt/omero/web/venv3/bin/pip install \
         omero-parade \
         omero-autotag \
         omero-tagsearch \
-        whitenoise
+        whitenoise \
+        django-redis  # WS-M: Redis cache/session backend (docker-compose.prod.yml)
 
 ADD omero-webimport /omero-webimport
 
