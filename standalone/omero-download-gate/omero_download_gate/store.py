@@ -41,11 +41,13 @@ stable and the swap is invisible to the rest of the plugin.
 
 import json
 import os
+import posixpath
 import re
 import sqlite3
 import uuid
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 # --- request status -------------------------------------------------------
 STATUS_PENDING = "pending"
@@ -128,6 +130,41 @@ def safe_filename(name):
     name = os.path.basename(name or "")
     name = _UNSAFE_FILENAME_RE.sub("_", name)
     return name[:128] or "unnamed"
+
+
+def xaccel_internal_uri(managed_root, internal_prefix, file_path, file_name):
+    """Map an OMERO original file to an NGINX X-Accel-Redirect internal URI
+    (WS-H / H2), or ``None`` if it would not resolve strictly inside the
+    served root.
+
+    ``managed_root`` is the managed-repository root OMERO reports paths
+    relative to (e.g. ``/OMERO/ManagedRepository``); ``file_path`` /
+    ``file_name`` are ``OriginalFile.getPath()`` / ``getName()``.
+    ``internal_prefix`` is the NGINX ``internal`` location (e.g.
+    ``/_protected``) whose ``alias`` points at that same managed-repo root.
+
+    Returns ``<internal_prefix>/<url-encoded relative path>``. Returns
+    ``None`` when the resolved path escapes ``managed_root`` (traversal via
+    ``..`` or an absolute path/name) - the security guard, so a crafted
+    stored path can never reach an arbitrary file. POSIX path semantics are
+    used deliberately: files are served from the Linux container regardless
+    of the caller's OS, so tests are stable cross-platform.
+    """
+    root = posixpath.normpath(managed_root or "")
+    if not root or root in (".", "/"):
+        return None
+    prefix = (internal_prefix or "").strip("/")
+    if not prefix:
+        return None
+    candidate = posixpath.normpath(
+        posixpath.join(root, file_path or "", file_name or ""))
+    # must be strictly *inside* the root (not the root dir itself)
+    if candidate == root or not candidate.startswith(root + "/"):
+        return None
+    rel = candidate[len(root) + 1:]
+    if not rel:
+        return None
+    return "/" + prefix + "/" + quote(rel)
 
 
 def _now():

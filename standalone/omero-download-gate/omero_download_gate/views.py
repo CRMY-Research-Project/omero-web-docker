@@ -34,7 +34,8 @@ through a privileged service account after its own approval check.
 import logging
 import os
 
-from django.http import JsonResponse, StreamingHttpResponse, Http404
+from django.http import (HttpResponse, JsonResponse, StreamingHttpResponse,
+                         Http404)
 from django.shortcuts import render
 from omeroweb.webclient.decorators import login_required
 
@@ -756,9 +757,41 @@ def download_status(request, image_id, conn=None, **kwargs):
     })
 
 
+def _xaccel_config():
+    """(managed_root, internal_prefix) when X-Accel offload is configured,
+    else (None, None). DOWNLOAD_GATE_XACCEL_ROOT is the managed-repo root the
+    NGINX 'internal' location aliases; DOWNLOAD_GATE_XACCEL_INTERNAL is that
+    location (default /_protected). See nginx/reverse_proxy.conf.example."""
+    root = os.environ.get("DOWNLOAD_GATE_XACCEL_ROOT", "").strip()
+    prefix = os.environ.get("DOWNLOAD_GATE_XACCEL_INTERNAL",
+                            "/_protected").strip()
+    return (root, prefix) if root else (None, None)
+
+
+def _select_original_file(image, file_id=None):
+    """The requested original file of an image (by file_id, else the first),
+    or None. Metadata only - resolvable from the requesting user's view."""
+    fileset = image.getFileset() if image is not None else None
+    files = list(fileset.listFiles()) if fileset is not None else []
+    if not files:
+        return None
+    if file_id:
+        for f in files:
+            if str(f.getId()) == str(file_id):
+                return f
+        return None
+    return files[0]
+
+
 @login_required()
 def download_image(request, image_id, conn=None, **kwargs):
-    """Stream an original file of an image - the gated endpoint."""
+    """Serve an original file of an image - the gated endpoint.
+
+    Fast path (WS-H / H2): when the managed repo is mounted and
+    DOWNLOAD_GATE_XACCEL_ROOT is set, hand byte-serving to NGINX via
+    X-Accel-Redirect (sendfile + Range/resume, zero bytes through Python).
+    Fallback: chunk-stream via BlitzGateway (service account if configured).
+    """
     image_id = int(image_id)
     image = conn.getObject("Image", image_id)
     if image is None:
@@ -773,6 +806,37 @@ def download_image(request, image_id, conn=None, **kwargs):
             "Download not approved. Submit a request from the "
             "Downloads page and wait for approval.",
             "not_approved", 403)
+
+    # Fast path (WS-H / H2): hand byte-serving to NGINX via X-Accel-Redirect.
+    # The approval check above is the gate; the /_protected/ location is
+    # 'internal', unreachable except via this redirect, and the target path is
+    # traversal-guarded in store.xaccel_internal_uri.
+    xroot, xprefix = _xaccel_config()
+    if xroot:
+        xtarget = _select_original_file(image, request.GET.get("file_id"))
+        if xtarget is not None:
+            uri = store.xaccel_internal_uri(
+                xroot, xprefix, xtarget.getPath(), xtarget.getName())
+            if uri:
+                store.record_audit(
+                    actor=_username(conn), action=store.ACTION_DOWNLOAD,
+                    target_type="image", target_id=image_id,
+                    detail="file=%s via=x-accel reason=%s"
+                    % (xtarget.getId(), reason),
+                    dataset_id=dataset_ids[0] if dataset_ids else None)
+                logger.info("Gated download (X-Accel): user=%s image=%s "
+                            "file=%s", _username(conn), image_id,
+                            xtarget.getId())
+                response = HttpResponse(
+                    content_type="application/octet-stream")
+                response["X-Accel-Redirect"] = uri
+                response["Content-Disposition"] = \
+                    'attachment; filename="%s"' \
+                    % store.safe_filename(xtarget.getName())
+                return response
+            logger.warning(
+                "X-Accel configured but file %s resolved outside the root; "
+                "falling back to streaming.", xtarget.getId())
 
     gateway = None
     try:

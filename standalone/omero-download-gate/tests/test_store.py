@@ -254,3 +254,45 @@ def test_legacy_json_is_migrated(gate_dir):
     assert store.get_request(rid)["username"] == "old"
     # an approved legacy request seeds an equivalent covering grant
     assert store.has_approval("old", 1, [33])
+
+
+# --- WS-H2: X-Accel-Redirect path safety ----------------------------------
+
+def test_xaccel_uri_basic():
+    assert store.xaccel_internal_uri(
+        "/OMERO/ManagedRepository", "/_protected",
+        "user_1/2020-01/Fileset_1", "slide.svs"
+    ) == "/_protected/user_1/2020-01/Fileset_1/slide.svs"
+
+
+def test_xaccel_uri_encodes_spaces_and_normalises_prefix():
+    # a prefix without a leading slash still yields a rooted URI
+    assert store.xaccel_internal_uri(
+        "/OMERO/ManagedRepository", "_protected", "a b", "s d.svs"
+    ) == "/_protected/a%20b/s%20d.svs"
+
+
+def test_xaccel_uri_rejects_dotdot_traversal():
+    assert store.xaccel_internal_uri(
+        "/OMERO/MR", "/_protected", "../../etc", "passwd") is None
+    assert store.xaccel_internal_uri(
+        "/OMERO/MR", "/_protected", "..", "..") is None
+
+
+def test_xaccel_uri_rejects_absolute_injection():
+    # an absolute path or name would join-escape the managed root
+    assert store.xaccel_internal_uri(
+        "/OMERO/MR", "/_protected", "/etc", "passwd") is None
+    assert store.xaccel_internal_uri(
+        "/OMERO/MR", "/_protected", "sub", "/etc/passwd") is None
+
+
+def test_xaccel_uri_rejects_root_only_and_misconfig():
+    # resolves to the root dir itself (no file) -> None
+    assert store.xaccel_internal_uri(
+        "/OMERO/MR", "/_protected", "", "") is None
+    # refuse filesystem root as the managed root
+    assert store.xaccel_internal_uri("/", "/_protected", "x", "y") is None
+    # empty internal prefix is a misconfiguration -> None
+    assert store.xaccel_internal_uri(
+        "/OMERO/MR", "", "a", "b.svs") is None
