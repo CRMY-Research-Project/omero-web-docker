@@ -157,3 +157,290 @@ code { font-family: var(--font-mono); background: var(--surface-2); padding: 1px
 
 .review-controls { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .review-controls .note-input { flex: 1 1 220px; }
+
+/* The [hidden] attribute must win over .field / flex display rules. */
+[hidden] { display: none !important; }
+
+/* ----- Page furniture ---------------------------------------------------- */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  color: var(--brass);
+  margin: 0 0 4px;
+}
+.card-lede { margin: -6px 0 14px; }
+
+/* Text-style and secondary buttons (override the solid brass default). */
+.linkish {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: var(--brass);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur-2) var(--ease);
+}
+.linkish:hover { background: none; text-decoration-color: currentColor; }
+.btn-secondary {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  padding: 6px 14px;
+}
+.btn-secondary:hover { background: var(--surface-2); }
+
+/* ----- Dataset picker (ARIA combobox) ------------------------------------ */
+.picker { position: relative; }
+.picker-input-wrap { position: relative; }
+.picker-input-wrap input { width: 100%; padding-left: 34px; }
+.picker-glass {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 2;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.picker-list {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 0 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-2);
+}
+/* project headings stay pinned while their datasets scroll past */
+.picker-group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 12px 5px;
+  font-family: var(--font-mono);
+  font-size: .66rem;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  color: var(--ink-soft);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.picker-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 8px 16px;
+  cursor: pointer;
+}
+.picker-option::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  background: var(--brass);
+  transform: scaleY(0);
+  transition: transform var(--dur-2) var(--ease);
+}
+.picker-option.is-active { background: var(--brass-tint); }
+.picker-option.is-active::before { transform: scaleY(1); }
+.picker-option.is-disabled { cursor: not-allowed; color: var(--ink-faint); }
+.picker-option .chip { margin: 0; }
+.opt-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.opt-meta { font-family: var(--font-mono); font-size: .78rem; color: var(--ink-faint); }
+.picker-empty,
+.picker-more { padding: 10px 12px; color: var(--ink-soft); font-size: .88rem; }
+.picker-more { font-style: italic; border-top: 1px solid var(--line); }
+.picker-hint { margin: 2px 0 0; font-size: .85rem; color: var(--ink-soft); }
+
+/* The chosen dataset reads like a slide label: brass edge, serif name. */
+.picker-chosen {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-left: 4px solid var(--brass);
+  border-radius: var(--r);
+  background: var(--brass-tint);
+  animation: label-in .28s var(--ease) both;
+}
+.chosen-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.chosen-eyebrow {
+  font-family: var(--font-mono);
+  font-size: .66rem;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  color: var(--ink-soft);
+}
+.chosen-name { font-family: var(--font-display); font-size: 1.15rem; font-weight: 600; }
+.chosen-id { font-family: var(--font-mono); font-size: .8rem; color: var(--ink-soft); }
+@keyframes label-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ----- Typed supporting documents ---------------------------------------- */
+.required-docs {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: .88rem;
+  background: var(--ochre-tint);
+  border-left: 3px solid var(--ochre);
+  border-radius: var(--r-xs);
+}
+.doc-rows {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.doc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+}
+.doc-row:first-child { border-top: none; }
+.doc-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-size { font-family: var(--font-mono); font-size: .78rem; color: var(--ink-faint); }
+.doc-row select {
+  padding: 5px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: .88rem;
+}
+
+/* ----- My access: an archival index of grants -> containers -> images --- */
+.access-tree,
+.tree-children { list-style: none; margin: 0; padding: 0; }
+.access-item { border-top: 1px solid var(--line); }
+.access-tree > .access-item:first-child,
+.tree-children > .access-item:first-child { border-top: none; }
+.access-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 6px;
+  border-radius: var(--r);
+  transition: background var(--dur-2) var(--ease);
+}
+.access-item.is-target > .access-head { background: var(--brass-tint); }
+.access-name { font-weight: 600; overflow-wrap: anywhere; }
+.access-meta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: .78rem;
+  color: var(--ink-faint);
+}
+.tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--ink);
+  font-weight: inherit;
+  text-align: left;
+}
+.tree-toggle:hover { background: none; color: var(--brass-deep); }
+.tree-toggle:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 3px;
+  border-radius: var(--r-xs);
+}
+.tree-toggle .chip { margin: 0; }
+.chevron {
+  width: 8px;
+  height: 8px;
+  margin: 0 4px 0 2px;
+  border-right: 2px solid var(--ink-soft);
+  border-bottom: 2px solid var(--ink-soft);
+  transform: rotate(-45deg);
+  transition: transform var(--dur-2) var(--ease);
+}
+.tree-toggle[aria-expanded="true"] .chevron { transform: rotate(45deg); }
+.tree-panel {
+  margin: 0 0 10px 13px;
+  padding-left: 14px;
+  border-left: 1px dashed var(--line-strong);
+}
+.image-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 4px;
+  border-top: 1px solid var(--line);
+}
+.tree-children > .image-row:first-child { border-top: none; }
+.image-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.image-row .access-meta { margin-left: 0; }
+.btn-download {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--brass-deep);
+  border: 1px solid var(--brass);
+  border-radius: var(--r-xs);
+  transition: background var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
+}
+.btn-download:hover { background: var(--brass); color: var(--paper); text-decoration: none; }
+.loading { animation: breathe 1.4s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .45; } }
+
+.chip-scope { background: var(--surface-2); border-left-color: var(--ink-faint); }
+.request-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.request-access { margin-top: 4px; }
+.request-docs a { overflow-wrap: anywhere; }
+
+@media (prefers-reduced-motion: reduce) {
+  .picker-chosen,
+  .loading { animation: none; }
+  .picker-option::before,
+  .chevron,
+  .access-head,
+  .btn-download,
+  .linkish { transition: none; }
+}

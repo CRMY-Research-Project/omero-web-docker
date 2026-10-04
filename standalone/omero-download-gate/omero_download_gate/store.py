@@ -754,6 +754,100 @@ def has_approval(username, image_id, dataset_ids, project_ids=()):
     return False
 
 
+def has_scope_approval(username, dataset_ids=(), project_ids=()):
+    """True iff ``username`` holds an active grant on one of these containers.
+
+    The container-level counterpart of :func:`has_approval`, for browsing a
+    dataset or project where there is no single image id. A dataset grant
+    matches ``dataset_ids``; a project grant matches ``project_ids`` (pass a
+    dataset's parent projects so a project-wide grant covers the dataset).
+    Image-scoped grants never cover a whole container.
+    """
+    dataset_ids = set(int(d) for d in dataset_ids)
+    project_ids = set(int(p) for p in project_ids)
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT * FROM grants WHERE principal=? AND revoked=0",
+            (username,)).fetchall()
+    for row in rows:
+        if not _grant_active(row):
+            continue
+        st, sid = row["scope_type"], row["scope_id"]
+        if st == SCOPE_DATASET and sid in dataset_ids:
+            return True
+        if st == SCOPE_PROJECT and sid in project_ids:
+            return True
+    return False
+
+
+# --------------------------------------------------------------------------
+# Requester-side access states (the request form's dataset picker)
+# --------------------------------------------------------------------------
+ACCESS_OWNER = "owner"
+ACCESS_GRANTED = "granted"
+ACCESS_PENDING = "pending"
+ACCESS_REQUESTABLE = "requestable"
+
+
+def merge_dataset_rows(rows):
+    """Collapse ``(id, name, owner_id, project_id, project_name)`` rows into
+    one dict per dataset.
+
+    The view's HQL projection yields one row per project link, so a dataset
+    in two projects arrives twice and an orphan once with no project; rows
+    from the requester's session and the service account may also overlap.
+    The first project seen names the picker group, and every linked project
+    id is kept so a project-wide grant still covers the dataset.
+    """
+    by_id = {}
+    for did, name, owner_id, pid, pname in rows:
+        item = by_id.get(did)
+        if item is None:
+            item = by_id[did] = {
+                "id": did, "name": name or "Unnamed dataset",
+                "owner_id": owner_id, "project_id": None,
+                "project_name": None, "project_ids": []}
+        if pid is not None:
+            if pid not in item["project_ids"]:
+                item["project_ids"].append(pid)
+            if item["project_id"] is None:
+                item["project_id"], item["project_name"] = pid, pname
+    return list(by_id.values())
+
+
+def dataset_access_states(datasets, user_id, grants, pending_requests):
+    """Label candidate datasets with the requester's current access state.
+
+    Pure (no DB) so the picker logic unit-tests offline: the view passes in
+    the user's active grants and pending requests it already fetched. Each
+    item of ``datasets`` is a dict with ``id``, ``owner_id`` and
+    ``project_ids``; a copy comes back with ``access`` set to one of
+    owner / granted / pending / requestable, in that precedence (owning
+    beats a grant, a grant beats a request still in review).
+    """
+    live = [g for g in grants if g.get("active", True)]
+    granted_ds = {g["scope_id"] for g in live
+                  if g["scope_type"] == SCOPE_DATASET}
+    granted_pr = {g["scope_id"] for g in live
+                  if g["scope_type"] == SCOPE_PROJECT}
+    pending_ds = {r["target_id"] for r in pending_requests
+                  if r["target_type"] == TARGET_DATASET}
+    out = []
+    for d in datasets:
+        item = dict(d)
+        if user_id is not None and d.get("owner_id") == user_id:
+            item["access"] = ACCESS_OWNER
+        elif (d["id"] in granted_ds
+              or granted_pr.intersection(d.get("project_ids") or ())):
+            item["access"] = ACCESS_GRANTED
+        elif d["id"] in pending_ds:
+            item["access"] = ACCESS_PENDING
+        else:
+            item["access"] = ACCESS_REQUESTABLE
+        out.append(item)
+    return out
+
+
 # --------------------------------------------------------------------------
 # Per-dataset policies (I2)
 # --------------------------------------------------------------------------

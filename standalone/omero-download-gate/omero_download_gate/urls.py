@@ -10,6 +10,17 @@ urlpatterns = [
     re_path(r'^requests/mine/$', views.my_requests,
             name='omero_download_gate_mine'),
 
+    # requester access: the request form's dataset picker, and the
+    # "My access" browser (grants -> datasets -> images). Both reach data
+    # outside the requester's groups via the service account - the picker
+    # for the catalogue + policy datasets, the browser for granted data only
+    re_path(r'^datasets/requestable/$', views.requestable_datasets,
+            name='omero_download_gate_requestable'),
+    re_path(r'^access/mine/$', views.my_access,
+            name='omero_download_gate_my_access'),
+    re_path(r'^access/(?P<scope>project|dataset)/(?P<scope_id>[0-9]+)/$',
+            views.access_browse, name='omero_download_gate_access_browse'),
+
     # admin review
     re_path(r'^review/$', views.review,
             name='omero_download_gate_review'),

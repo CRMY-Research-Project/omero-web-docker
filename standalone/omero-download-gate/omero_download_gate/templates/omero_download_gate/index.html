@@ -1,28 +1,43 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Download Access Requests</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Download Access</title>
     <link rel="stylesheet" type="text/css" href="{% static 'omero_download_gate/css/gate.css' %}">
 </head>
 <body>
     {% csrf_token %}
 
+    <!-- Endpoint URLs as data (application/json is not executable; CSP-safe).
+         index.js reads these by id and JSON.parse()s the textContent. -->
+    <script id="gate-config" type="application/json">{
+      "index": "{% url 'omero_download_gate_index' %}",
+      "request": "{% url 'omero_download_gate_request' %}",
+      "mine": "{% url 'omero_download_gate_mine' %}",
+      "requestable": "{% url 'omero_download_gate_requestable' %}",
+      "myAccess": "{% url 'omero_download_gate_my_access' %}",
+      "download": "{% url 'omero_download_gate_download' image_id=0 %}"
+    }</script>
+    {{ doc_types|json_script:"gate-doctypes" }}
+
     <div class="page-container">
         <header>
+            <p class="eyebrow">Data access</p>
             <h1>Download Access</h1>
             <p>
-                Downloads of dataset images require approval. Submit a request
-                with your supporting documents (e.g. ethics approval, project
-                proposal); an administrator will review it.
+                Downloads of dataset images require approval. Choose a dataset,
+                attach your supporting documents (e.g. ethics approval, project
+                proposal) and a data steward will review it.
             </p>
-            {% if is_admin %}
-            <p><a href="{% url 'omero_download_gate_review' %}">Administrator: review pending requests →</a></p>
+            {% if can_review %}
+            <p><a href="{% url 'omero_download_gate_review' %}">Reviewer: open the governance console &rarr;</a></p>
             {% endif %}
         </header>
 
-        <section class="card">
-            <h2>New request</h2>
-            <form id="request-form">
+        <section class="card" aria-labelledby="new-request-title">
+            <h2 id="new-request-title">New request</h2>
+            <form id="request-form" novalidate>
                 <div class="field">
                     <label for="target-type">Requesting access to</label>
                     <select id="target-type" name="target_type">
@@ -30,140 +45,66 @@
                         <option value="image">A single image</option>
                     </select>
                 </div>
-                <div class="field">
-                    <label for="target-id">Dataset / image ID</label>
-                    <input type="number" id="target-id" name="target_id" min="1" required
+
+                <!-- Dataset picker: an ARIA combobox over the requestable list -->
+                <div class="field" id="dataset-field">
+                    <label for="dataset-search" id="dataset-label">Dataset</label>
+                    <div class="picker" id="dataset-picker">
+                        <div class="picker-input-wrap">
+                            <svg class="picker-glass" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+                            <input id="dataset-search" type="text" role="combobox"
+                                   autocomplete="off" spellcheck="false"
+                                   aria-autocomplete="list" aria-expanded="false"
+                                   aria-controls="dataset-list"
+                                   aria-describedby="dataset-hint"
+                                   placeholder="Search by patient, dataset, project or #id">
+                        </div>
+                        <ul id="dataset-list" class="picker-list" role="listbox"
+                            aria-labelledby="dataset-label" hidden></ul>
+                        <div id="dataset-chosen" class="picker-chosen" hidden></div>
+                    </div>
+                    <p class="picker-hint" id="dataset-hint" aria-live="polite">Loading datasets&hellip;</p>
+                    <button type="button" class="linkish" id="manual-toggle">Enter a dataset ID instead</button>
+                </div>
+
+                <!-- Numeric id: always for images, opt-in fallback for datasets -->
+                <div class="field" id="id-field" hidden>
+                    <label for="target-id" id="target-id-label">Image ID</label>
+                    <input type="number" id="target-id" min="1" inputmode="numeric"
                            placeholder="Numeric ID shown in the webclient URL">
                 </div>
+
                 <div class="field">
                     <label for="reason">Reason for access</label>
                     <textarea id="reason" name="reason" rows="4"
                               placeholder="Project, intended use, approval references..."></textarea>
                 </div>
+
                 <div class="field">
                     <label for="docs">Supporting documents (pdf, doc, docx, txt, png, jpg)</label>
+                    <p class="required-docs" id="required-docs" hidden></p>
                     <input type="file" id="docs" multiple
                            accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg">
+                    <ul class="doc-rows" id="doc-rows" hidden></ul>
                 </div>
+
                 <button type="submit" id="submit-btn">Submit request</button>
-                <div id="form-message" class="message" hidden></div>
+                <div id="form-message" class="message" role="status" hidden></div>
             </form>
         </section>
 
-        <section class="card">
-            <h2>My requests</h2>
-            <div id="requests-list">Loading…</div>
+        <section class="card" id="access" aria-labelledby="access-title">
+            <h2 id="access-title">My access</h2>
+            <p class="muted card-lede">Everything an approval has opened to you. Expand a dataset or project to reach its images.</p>
+            <div id="access-list" aria-live="polite"><p class="muted">Loading&hellip;</p></div>
+        </section>
+
+        <section class="card" aria-labelledby="requests-title">
+            <h2 id="requests-title">My requests</h2>
+            <div id="requests-list" aria-live="polite"><p class="muted">Loading&hellip;</p></div>
         </section>
     </div>
 
-    <script>
-        const csrftoken = document.querySelector("input[name='csrfmiddlewaretoken']").value;
-        const requestUrl = "{% url 'omero_download_gate_request' %}";
-        const mineUrl = "{% url 'omero_download_gate_mine' %}";
-        // download/files URLs carry a dummy id replaced client-side
-        const filesUrlTemplate = "{% url 'omero_download_gate_files' image_id=0 %}";
-        const downloadUrlTemplate = "{% url 'omero_download_gate_download' image_id=0 %}";
-        const docUrlBase = window.location.pathname.replace(/\/$/, "") + "/doc/";
-
-        function filesUrl(imageId) {
-            return filesUrlTemplate.replace("/0/", "/" + imageId + "/");
-        }
-        function downloadUrl(imageId, fileId) {
-            const base = downloadUrlTemplate.replace("/0/", "/" + imageId + "/");
-            return fileId ? base + "?file_id=" + fileId : base;
-        }
-
-        function statusChip(status) {
-            return '<span class="chip chip-' + status + '">' + status + '</span>';
-        }
-
-        function renderRequest(req) {
-            let html = '<div class="request-row">';
-            html += statusChip(req.status);
-            html += ' <strong>' + req.target_type + ' #' + req.target_id + '</strong>';
-            html += ' <span class="muted">requested ' + new Date(req.created_at).toLocaleString() + '</span>';
-            if (req.review_note) {
-                html += '<div class="muted">Reviewer note: ' + escapeHtml(req.review_note) + '</div>';
-            }
-            if (req.expires_at) {
-                html += '<div class="muted">Access expires: ' + new Date(req.expires_at).toLocaleString() + '</div>';
-            }
-            if (req.documents.length > 0) {
-                html += '<div class="muted">Documents: ' + req.documents.map(d =>
-                    '<a href="' + docUrlBase + req.id + '/' + encodeURIComponent(d) + '">' + escapeHtml(d) + '</a>'
-                ).join(', ') + '</div>';
-            }
-            if (req.status === 'approved' && req.target_type === 'image') {
-                html += '<div><a href="' + downloadUrl(req.target_id) + '">Download original file</a></div>';
-            }
-            if (req.status === 'approved' && req.target_type === 'dataset') {
-                html += '<div class="muted">Approved: use the download link on each image, e.g. '
-                     + '<code>' + downloadUrl('&lt;image-id&gt;') + '</code></div>';
-            }
-            html += '</div>';
-            return html;
-        }
-
-        function escapeHtml(s) {
-            const div = document.createElement('div');
-            div.textContent = s;
-            return div.innerHTML;
-        }
-
-        function loadRequests() {
-            fetch(mineUrl)
-                .then(res => res.json())
-                .then(data => {
-                    const el = document.getElementById('requests-list');
-                    if (!data.requests || data.requests.length === 0) {
-                        el.innerHTML = '<p class="muted">No requests yet.</p>';
-                        return;
-                    }
-                    el.innerHTML = data.requests.map(renderRequest).join('');
-                })
-                .catch(() => {
-                    document.getElementById('requests-list').textContent =
-                        'Could not load requests.';
-                });
-        }
-
-        document.getElementById('request-form').addEventListener('submit', function (e) {
-            e.preventDefault();
-            const btn = document.getElementById('submit-btn');
-            const msg = document.getElementById('form-message');
-            btn.disabled = true;
-            msg.hidden = true;
-
-            const formData = new FormData();
-            formData.append('csrfmiddlewaretoken', csrftoken);
-            formData.append('target_type', document.getElementById('target-type').value);
-            formData.append('target_id', document.getElementById('target-id').value);
-            formData.append('reason', document.getElementById('reason').value);
-            [...document.getElementById('docs').files].forEach((f, i) => {
-                formData.append('doc' + i, f);
-            });
-
-            fetch(requestUrl, { method: 'POST', body: formData })
-                .then(res => res.json().then(data => ({ ok: res.ok, data })))
-                .then(({ ok, data }) => {
-                    if (!ok || data.success === false) {
-                        throw new Error((data.error && data.error.message) || 'Request failed');
-                    }
-                    msg.textContent = 'Request submitted - an administrator will review it.';
-                    msg.className = 'message ok';
-                    msg.hidden = false;
-                    document.getElementById('request-form').reset();
-                    loadRequests();
-                })
-                .catch(err => {
-                    msg.textContent = err.message;
-                    msg.className = 'message err';
-                    msg.hidden = false;
-                })
-                .finally(() => { btn.disabled = false; });
-        });
-
-        loadRequests();
-    </script>
+    <script src="{% static 'omero_download_gate/js/index.js' %}"></script>
 </body>
 </html>

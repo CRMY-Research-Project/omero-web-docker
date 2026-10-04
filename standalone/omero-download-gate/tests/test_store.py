@@ -296,3 +296,122 @@ def test_xaccel_uri_rejects_root_only_and_misconfig():
     # empty internal prefix is a misconfiguration -> None
     assert store.xaccel_internal_uri(
         "/OMERO/MR", "", "a", "b.svs") is None
+
+
+# --------------------------------------------------------------------------
+# Container-level grant coverage (browsing an approved dataset / project)
+# --------------------------------------------------------------------------
+def test_scope_approval_dataset_grant_covers_only_that_dataset():
+    store.create_grant("alice", store.SCOPE_DATASET, 12, "root")
+    assert store.has_scope_approval("alice", dataset_ids=[12])
+    assert not store.has_scope_approval("alice", dataset_ids=[13])
+    assert not store.has_scope_approval("bob", dataset_ids=[12])
+
+
+def test_scope_approval_project_grant_covers_child_datasets():
+    store.create_grant("alice", store.SCOPE_PROJECT, 7, "root")
+    # a dataset whose parent project is 7 is covered by the project grant
+    assert store.has_scope_approval("alice", dataset_ids=[12],
+                                    project_ids=[7])
+    assert store.has_scope_approval("alice", project_ids=[7])
+    assert not store.has_scope_approval("alice", dataset_ids=[12],
+                                        project_ids=[8])
+
+
+def test_scope_approval_ignores_image_revoked_and_expired_grants():
+    # an image grant never covers a whole container
+    store.create_grant("alice", store.SCOPE_IMAGE, 12, "root")
+    assert not store.has_scope_approval("alice", dataset_ids=[12])
+    revoked = store.create_grant("alice", store.SCOPE_DATASET, 20, "root")
+    store.revoke_grant(revoked["id"], "root")
+    assert not store.has_scope_approval("alice", dataset_ids=[20])
+    store.create_grant("alice", store.SCOPE_DATASET, 21, "root",
+                       expires_at="2000-01-01T00:00:00+00:00")
+    assert not store.has_scope_approval("alice", dataset_ids=[21])
+
+
+def test_scope_approval_via_approved_dataset_request():
+    # the real path: request -> approve (default scope) -> browsable
+    req = make_request(username="dana", target_id=55)
+    assert not store.has_scope_approval("dana", dataset_ids=[55])
+    store.review_request(req["id"], True, "steward1")
+    assert store.has_scope_approval("dana", dataset_ids=[55])
+
+
+# --------------------------------------------------------------------------
+# Requester-side access states (request-form dataset picker)
+# --------------------------------------------------------------------------
+def _ds(did, owner_id=1, project_ids=()):
+    return {"id": did, "name": "SD%04d" % did, "owner_id": owner_id,
+            "project_ids": list(project_ids)}
+
+
+def test_access_states_cover_all_four_states():
+    grants = [
+        {"scope_type": store.SCOPE_DATASET, "scope_id": 2, "active": True},
+        {"scope_type": store.SCOPE_PROJECT, "scope_id": 9, "active": True},
+    ]
+    pending = [{"target_type": store.TARGET_DATASET, "target_id": 4}]
+    out = store.dataset_access_states(
+        [_ds(1, owner_id=5), _ds(2), _ds(3, project_ids=[9]), _ds(4),
+         _ds(6)],
+        user_id=5, grants=grants, pending_requests=pending)
+    assert [d["access"] for d in out] == [
+        store.ACCESS_OWNER,        # owned by the requester
+        store.ACCESS_GRANTED,      # dataset grant
+        store.ACCESS_GRANTED,      # covered by its project's grant
+        store.ACCESS_PENDING,      # request still in review
+        store.ACCESS_REQUESTABLE,  # nothing yet
+    ]
+
+
+def test_access_states_precedence_and_inactive_grants():
+    # owning beats a grant; a grant beats a pending request
+    grants = [{"scope_type": store.SCOPE_DATASET, "scope_id": 1,
+               "active": True},
+              {"scope_type": store.SCOPE_DATASET, "scope_id": 2,
+               "active": True},
+              {"scope_type": store.SCOPE_DATASET, "scope_id": 3,
+               "active": False}]
+    pending = [{"target_type": store.TARGET_DATASET, "target_id": 2},
+               {"target_type": store.TARGET_IMAGE, "target_id": 3}]
+    out = store.dataset_access_states(
+        [_ds(1, owner_id=5), _ds(2), _ds(3)], user_id=5, grants=grants,
+        pending_requests=pending)
+    assert out[0]["access"] == store.ACCESS_OWNER
+    assert out[1]["access"] == store.ACCESS_GRANTED
+    # an expired/revoked grant and an *image* request don't count
+    assert out[2]["access"] == store.ACCESS_REQUESTABLE
+
+
+def test_merge_rows_collapses_links_and_sources():
+    rows = [
+        (1, "SD0001", 3, 7, "CRM Dataset"),
+        (1, "SD0001", 3, 8, "Teaching set"),   # second project link
+        (2, "orphan", 3, None, None),          # in no project
+        (1, "SD0001", 3, 7, "CRM Dataset"),    # same row from 2nd source
+    ]
+    out = {d["id"]: d for d in store.merge_dataset_rows(rows)}
+    assert set(out) == {1, 2}
+    assert out[1]["project_ids"] == [7, 8]
+    assert (out[1]["project_id"], out[1]["project_name"]) == \
+        (7, "CRM Dataset")
+    assert out[2]["project_ids"] == [] and out[2]["project_name"] is None
+
+
+def test_merge_rows_names_unnamed_and_feeds_access_states():
+    merged = store.merge_dataset_rows([(4, None, 9, 7, "CRM Dataset")])
+    assert merged[0]["name"] == "Unnamed dataset"
+    grants = [{"scope_type": store.SCOPE_PROJECT, "scope_id": 7,
+               "active": True}]
+    out = store.dataset_access_states(merged, user_id=5, grants=grants,
+                                      pending_requests=[])
+    assert out[0]["access"] == store.ACCESS_GRANTED
+
+
+def test_access_states_returns_copies():
+    src = [_ds(1)]
+    out = store.dataset_access_states(src, user_id=None, grants=[],
+                                      pending_requests=[])
+    assert "access" not in src[0]
+    assert out[0]["access"] == store.ACCESS_REQUESTABLE
