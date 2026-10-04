@@ -26,11 +26,12 @@ import uuid
 
 from django.shortcuts import render
 from django.http import JsonResponse
+from django.urls import reverse
 from omeroweb.webclient.decorators import login_required
 
 import omero.model
 
-from . import jobs
+from . import batch, jobs
 from .util.import_library import ImportLibrary
 
 logger = logging.getLogger(__name__)
@@ -172,12 +173,16 @@ def submit_import(request, conn=None, **kwargs):
             for chunk in open_file.chunks():
                 yield chunk
 
+        # Import each file as its own fileset (see _do_import) so a
+        # multi-file selection yields one image per file, not one.
         import_lib = ImportLibrary(conn.c)
-        rsp = import_lib.import_image(
-            (f for f in files),
-            (chunks_gen(f) for f in files),
-            wait=True)
-        img_ids = [p.image.id.val for p in rsp.pixels]
+        img_ids = []
+        for f in files:
+            rsp = import_lib.import_image(
+                iter([f]),
+                iter([chunks_gen(f)]),
+                wait=True)
+            img_ids.extend(p.image.id.val for p in rsp.pixels)
     except Exception:
         logger.exception("Import failed")
         return _error(
@@ -294,6 +299,13 @@ def upload_chunk(request, conn=None, **kwargs):
         "next_chunk": 0,
         "bytes": 0,
     })
+    # The browser declares each file's full size so complete_upload can tell
+    # a fully staged file from one whose upload died part-way.
+    if "size" not in finfo:
+        try:
+            finfo["size"] = int(request.POST.get("total_size", ""))
+        except ValueError:
+            finfo["size"] = None   # older client: trust any staged bytes
 
     # Retried chunk we already have: acknowledge idempotently
     if chunk_index < finfo["next_chunk"]:
@@ -333,17 +345,100 @@ def _disk_chunks(path, buf=1024 * 1024):
             yield block
 
 
-def _do_import(client, names, paths):
-    """Run the actual OMERO import; returns the list of new image ids."""
+_RETRY_ERROR = ("Import failed on the server; ask an administrator to check "
+                "the OMERO.web logs. Your staged upload is kept for retry.")
+
+
+def _do_import(client, files, on_event=None):
+    """Import staged ``(name, path, size)`` files, one fileset each.
+
+    Each staged file is imported as its OWN fileset. A single OMERO
+    fileset models one logical image plus its companion files, so passing
+    several independent images as one fileset makes Bio-Formats treat the
+    first as the master and the rest as companions - only one image is
+    created. The web picker selects independent images, so they import one
+    fileset at a time; :func:`batch.import_files` isolates per-file
+    failures and reports progress through ``on_event``. Returns its
+    per-file results.
+    """
     import_lib = ImportLibrary(client)
-    rsp = import_lib.import_image(
-        iter(names),
-        (_disk_chunks(p) for p in paths),
-        wait=True)
-    return [p.image.id.val for p in rsp.pixels]
+
+    def import_one(name, path, progress):
+        rsp = import_lib.import_image(
+            iter([name]), iter([_disk_chunks(path)]), wait=True,
+            progress=lambda _index, sent: progress(sent))
+        return [p.image.id.val for p in rsp.pixels]
+
+    return batch.import_files(files, import_one, on_event=on_event,
+                              logger=logger)
 
 
-def _run_import_job(job_id, session_uuid, host, port, names, paths,
+def _staged_files(upload_dir, meta):
+    """Split an upload's staged files into importable and incomplete.
+
+    Returns ``(keys, files, skipped)``: the meta keys and ``(name, path,
+    size)`` tuples of every fully staged file in upload order, plus the
+    keys of files whose upload died part-way. Those are reported back, not
+    imported - a truncated slide would fail or import corrupt.
+    """
+    keys, files, skipped = [], [], []
+    for key, finfo in sorted(meta["files"].items(),
+                             key=lambda kv: int(kv[0])):
+        path = os.path.join(upload_dir, "%s.part" % key)
+        size = finfo.get("size")
+        if (os.path.exists(path) and finfo["bytes"] > 0
+                and (size is None or finfo["bytes"] >= size)):
+            keys.append(key)
+            files.append((finfo["name"], path, finfo["bytes"]))
+        else:
+            skipped.append(key)
+    return keys, files, skipped
+
+
+def _link_results(conn, dataset, results):
+    """Link each imported file's images to the target dataset.
+
+    One link batch per file, so a failure on one file's links leaves the
+    others linked; returns the warnings of any that failed.
+    """
+    warnings = []
+    for result in results:
+        if result["image_ids"]:
+            warning = _link_images(conn, dataset, result["image_ids"])
+            if warning:
+                warnings.append(warning)
+    return warnings
+
+
+def _forget_imported(upload_dir, keys, results):
+    """Drop staged files that imported, keeping failures for a retry.
+
+    A retry (complete_upload again with the same upload_id) then imports
+    only what failed instead of duplicating what already landed; the
+    staging dir goes once nothing is left in it.
+    """
+    meta = _load_meta(upload_dir)
+    if meta is None:
+        return
+    for key, result in zip(keys, results):
+        if result["error"] is None:
+            meta["files"].pop(key, None)
+            try:
+                os.remove(os.path.join(upload_dir, "%s.part" % key))
+            except OSError:
+                pass
+    if meta["files"]:
+        _save_meta(upload_dir, meta)
+    else:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+
+
+def _join_warnings(warnings):
+    """One message from the non-empty warnings, or None."""
+    return "\n".join(w for w in warnings if w) or None
+
+
+def _run_import_job(job_id, session_uuid, host, port, keys, files,
                     upload_dir, dataset_id):
     """Background worker: rejoin the user's session and import.
 
@@ -360,21 +455,37 @@ def _run_import_job(job_id, session_uuid, host, port, names, paths,
             jobs.finish_job(job_id, error="Could not rejoin the upload "
                             "session; it may have expired. Please retry.")
             return
-        image_ids = _do_import(gateway.c, names, paths)
-        warning = None
+        # We joined the user's *web* session by UUID. Mark it detach-on-
+        # destroy so this worker's gateway.close() (in the finally below)
+        # only drops our connection instead of destroying the shared
+        # session - otherwise finishing the import logs the user out of
+        # their browser session.
+        try:
+            gateway.c.getSession().detachOnDestroy()
+        except Exception:  # pragma: no cover - defensive across omero-py
+            logger.exception("Could not set detachOnDestroy on the shared "
+                             "session; proceeding (close may end it)")
+        results = _do_import(
+            gateway.c, files,
+            on_event=lambda index, **fields:
+                jobs.update_file(job_id, index, **fields))
+        image_ids, failed, warning = batch.summarize(results)
+        warnings = [warning]
         if dataset_id is not None and image_ids:
             dataset = gateway.getObject("Dataset", dataset_id)
             if dataset is not None:
-                warning = _link_images(gateway, dataset, image_ids)
-        shutil.rmtree(upload_dir, ignore_errors=True)
-        jobs.finish_job(job_id, image_ids=image_ids, warning=warning)
+                warnings.extend(_link_results(gateway, dataset, results))
+        _forget_imported(upload_dir, keys, results)
+        if failed and len(failed) == len(results):
+            jobs.finish_job(job_id, error=_RETRY_ERROR)
+        else:
+            jobs.finish_job(job_id, image_ids=image_ids,
+                            warning=_join_warnings(warnings))
     except Exception:
         logger.exception("Async import failed (job %s, upload %s)",
                          job_id, os.path.basename(upload_dir))
         # keep the staged upload so the user can retry
-        jobs.finish_job(job_id, error="Import failed on the server; ask an "
-                        "administrator to check the OMERO.web logs. Your "
-                        "staged upload is kept for retry.")
+        jobs.finish_job(job_id, error=_RETRY_ERROR)
     finally:
         if gateway is not None:
             gateway.close()
@@ -401,56 +512,63 @@ def complete_upload(request, conn=None, **kwargs):
     if err is not None:
         return err
 
-    ordered = sorted(meta["files"].items(), key=lambda kv: int(kv[0]))
-    names, paths = [], []
-    for index, finfo in ordered:
-        path = os.path.join(upload_dir, "%s.part" % index)
-        if not os.path.exists(path) or finfo["bytes"] == 0:
-            return _error("File %s ('%s') has no staged data."
-                          % (index, finfo["name"]), "incomplete", 400)
-        names.append(finfo["name"])
-        paths.append(path)
+    keys, files, skipped = _staged_files(upload_dir, meta)
+    if not files:
+        return _error("None of the staged files finished uploading; "
+                      "please upload them again.", "incomplete", 400)
+    # Lets the UI map each per-file result back onto its own progress row.
+    file_indexes = [int(k) for k in keys]
+    skipped = [int(k) for k in skipped]
 
     # Synchronous fallback (WEBIMPORT_ASYNC=0): block until import done.
     # The default async path returns immediately and the UI polls.
     if os.environ.get("WEBIMPORT_ASYNC", "1") != "1":
         try:
-            img_ids = _do_import(conn.c, names, paths)
+            results = _do_import(conn.c, files)
         except Exception:
             logger.exception("Chunked import failed (upload %s)",
                              os.path.basename(upload_dir))
-            return _error(
-                "Import failed on the server; ask an administrator to "
-                "check the OMERO.web logs. Your staged upload is kept "
-                "for retry.", "import_failed", 500)
-        warning = None
-        if dataset is not None and img_ids:
-            warning = _link_images(conn, dataset, img_ids)
-        shutil.rmtree(upload_dir, ignore_errors=True)
-        payload = {"success": True, "image_ids": img_ids}
+            return _error(_RETRY_ERROR, "import_failed", 500)
+        image_ids, failed, warning = batch.summarize(results)
+        if failed and len(failed) == len(results):
+            return _error(_RETRY_ERROR, "import_failed", 500)
+        warnings = [warning]
+        if dataset is not None and image_ids:
+            warnings.extend(_link_results(conn, dataset, results))
+        _forget_imported(upload_dir, keys, results)
+        payload = {"success": True, "image_ids": image_ids,
+                   "files": results, "file_indexes": file_indexes,
+                   "skipped": skipped}
+        warning = _join_warnings(warnings)
         if warning:
             payload["warning"] = warning
         return JsonResponse(payload)
 
     # Async path: spawn a background thread that rejoins the session.
     jobs.cleanup_old_jobs()
-    job = jobs.create_job(conn.getUser().getName())
+    job = jobs.create_job(conn.getUser().getName(),
+                          files=[(name, size) for name, _p, size in files])
     host = os.environ.get("OMEROHOST", "omeroserver")
     worker = threading.Thread(
         target=_run_import_job,
-        args=(job["id"], conn._sessionUuid, host, 4064, names, paths,
+        args=(job["id"], conn._sessionUuid, host, 4064, keys, files,
               upload_dir, dataset.getId() if dataset is not None else None),
         daemon=True,
     )
     worker.start()
+    # Absolute: the old relative "status/<id>/" resolved against the page
+    # URL to a path with no route, so the UI's poll 404'd forever and sat
+    # on "Importing into OMERO..." even after the import had finished.
     return JsonResponse({"success": True, "job_id": job["id"],
-                         "status_url": "status/%s/" % job["id"]},
+                         "status_url": reverse("omero_webimport_status",
+                                               kwargs={"job_id": job["id"]}),
+                         "file_indexes": file_indexes, "skipped": skipped},
                         status=202)
 
 
 @login_required()
 def import_status(request, job_id, conn=None, **kwargs):
-    """Poll an async import job's status."""
+    """Poll an async import job's status, including per-file progress."""
     job = jobs.get_job(job_id)
     if job is None:
         return _error("Unknown job.", "not_found", 404)
@@ -459,6 +577,7 @@ def import_status(request, job_id, conn=None, **kwargs):
     return JsonResponse({
         "success": True,
         "status": job["status"],
+        "files": job.get("files", []),
         "image_ids": job.get("image_ids", []),
         "warning": job.get("warning"),
         "error": job.get("error"),

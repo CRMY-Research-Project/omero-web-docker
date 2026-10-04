@@ -21,6 +21,7 @@
 """Import library."""
 
 import omero
+import os
 import platform
 from omero.model import ChecksumAlgorithmI
 # from omero.model import NamedValue
@@ -88,11 +89,17 @@ class ImportLibrary(object):
         fileset.linkJob(upload)
         return fileset
 
-    def upload_folder(self, proc, folder_gen):
-        """Iterate through folder_gen, uploading files in chunks."""
+    def upload_folder(self, proc, folder_gen, progress=None):
+        """Iterate through folder_gen, uploading files in chunks.
+
+        ``progress``, when given, is called as ``progress(index, sent)``
+        after every chunk: the file's position in the fileset and the bytes
+        of it written to the managed repository so far.
+        """
         ret_val = []
         i = 0
         for chunk_gen in folder_gen:
+            index = i
             rfs = proc.getUploader(i)
             i += 1
             try:
@@ -104,6 +111,8 @@ class ImportLibrary(object):
                     rfs.write(chunk, offset, len(chunk))
                     offset += len(chunk)
                     hash.update(chunk)
+                    if progress is not None:
+                        progress(index, offset)
                 ret_val.append(hash.hexdigest())
             finally:
                 rfs.close()
@@ -123,15 +132,32 @@ class ImportLibrary(object):
         fileset = self.create_fileset(client_path_gen)
         return self.mrepo.importFileset(fileset, settings)
 
-    def import_image(self, client_path_gen, folder_gen, wait=False):
-        """Entry point to perform full import of fileset."""
+    def import_image(self, client_path_gen, folder_gen, wait=False,
+                     timeout=None, progress=None):
+        """Entry point to perform full import of fileset.
+
+        ``timeout`` (seconds) bounds how long ``wait`` blocks on the
+        server-side import; default WEBIMPORT_IMPORT_TIMEOUT_S, else 1 hour.
+        The old fixed 10 x 500 ms wait raised LockTimeout after 5 s - shorter
+        than most whole-slide imports - aborting the caller (and every file
+        after it) while the server quietly finished the import.
+        ``progress`` is passed to :meth:`upload_folder`.
+        """
         proc = self.create_import(client_path_gen)
         try:
-            hashes = self.upload_folder(proc, folder_gen)
+            hashes = self.upload_folder(proc, folder_gen, progress)
             handle = proc.verifyUpload(hashes)
             if wait:
+                if timeout is None:
+                    timeout = int(os.environ.get(
+                        "WEBIMPORT_IMPORT_TIMEOUT_S", 3600))
                 cb = CmdCallbackI(self.client, handle)
-                rsp = self.assert_passes(cb)
+                try:
+                    # 500 ms per loop -> 2 loops per second of timeout
+                    rsp = self.assert_passes(
+                        cb, loops=max(1, int(timeout * 2)), wait=500)
+                finally:
+                    cb.close(False)  # release the callback, keep the handle
                 assert len(rsp.pixels) > 0
                 return rsp
             else:

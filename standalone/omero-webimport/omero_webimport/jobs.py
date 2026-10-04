@@ -21,6 +21,14 @@ STATUS_RUNNING = "running"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 
+# Per-file import states, in the order a file moves through them. The UI
+# keys its progress rows off these exact strings.
+FILE_QUEUED = "queued"              # staged, waiting its turn
+FILE_TRANSFERRING = "transferring"  # bytes streaming into OMERO
+FILE_PROCESSING = "processing"      # bytes in; server-side import running
+FILE_DONE = "done"
+FILE_FAILED = "failed"
+
 
 def _staging_dir():
     return os.environ.get("WEBIMPORT_STAGING_DIR",
@@ -48,7 +56,12 @@ def _write(path, data):
     os.replace(tmp, path)
 
 
-def create_job(username):
+def create_job(username, files=None):
+    """Register a running import job.
+
+    ``files`` is a list of ``(name, size)`` pairs, one per staged file in
+    import order; each gets a progress entry the status endpoint reports.
+    """
     job_id = uuid.uuid4().hex
     job = {
         "id": job_id,
@@ -59,8 +72,30 @@ def create_job(username):
         "image_ids": [],
         "warning": None,
         "error": None,
+        "files": [{"name": name, "size": size, "state": FILE_QUEUED,
+                   "sent": 0, "image_ids": [], "error": None}
+                  for name, size in (files or [])],
     }
     _write(_job_path(job_id), job)
+    return job
+
+
+def update_file(job_id, index, **fields):
+    """Merge ``fields`` into the job's per-file entry ``index``.
+
+    Only the import thread writes a running job, so this read-modify-write
+    cannot race another writer; the atomic replace in ``_write`` means a
+    concurrent status poll never sees a torn file. Unknown jobs or
+    out-of-range indexes are ignored (returns None / the job unchanged).
+    """
+    job = get_job(job_id)
+    if job is None:
+        return None
+    files = job.get("files") or []
+    if 0 <= index < len(files):
+        files[index].update(fields)
+        job["updated"] = time.time()
+        _write(_job_path(job_id), job)
     return job
 
 
