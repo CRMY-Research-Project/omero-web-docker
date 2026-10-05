@@ -39,6 +39,9 @@ config append omero.web.ui.top_links '["Webimport", "omero_webimport_index", {"t
 # Download approval gate (FR6: downloads restricted to approved users)
 config append omero.web.apps '"omero_download_gate"'
 config append omero.web.ui.top_links '["Downloads", "omero_download_gate_index", {"title": "Request download access"}]'
+# Keep slide label/macro images from anonymous visitors; index 7 runs after
+# Django's SessionMiddleware (index 3), which the guard reads
+config append -- omero.web.middleware '{"index": 7, "class": "omero_download_gate.middleware.AssociatedImageGuard"}'
 
 config append omero.web.ui.top_links '["Tag Search", "tagsearch"]'
 

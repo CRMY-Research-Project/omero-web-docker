@@ -132,6 +132,28 @@ def safe_filename(name):
     return name[:128] or "unnamed"
 
 
+def _managed_relpath(managed_root, file_path, file_name):
+    """An original file's path relative to ``managed_root``, or ``None`` if
+    it would not resolve strictly inside that root.
+
+    The shared security guard behind :func:`xaccel_internal_uri` and
+    :func:`managed_file_path`: traversal via ``..`` or an absolute
+    path/name is rejected, so a crafted stored path can never reach an
+    arbitrary file. POSIX path semantics are used deliberately: files are
+    served from the Linux container regardless of the caller's OS, so
+    tests are stable cross-platform.
+    """
+    root = posixpath.normpath(managed_root or "")
+    if not root or root in (".", "/"):
+        return None
+    candidate = posixpath.normpath(
+        posixpath.join(root, file_path or "", file_name or ""))
+    # must be strictly *inside* the root (not the root dir itself)
+    if candidate == root or not candidate.startswith(root + "/"):
+        return None
+    return candidate[len(root) + 1:] or None
+
+
 def xaccel_internal_uri(managed_root, internal_prefix, file_path, file_name):
     """Map an OMERO original file to an NGINX X-Accel-Redirect internal URI
     (WS-H / H2), or ``None`` if it would not resolve strictly inside the
@@ -143,28 +165,29 @@ def xaccel_internal_uri(managed_root, internal_prefix, file_path, file_name):
     ``internal_prefix`` is the NGINX ``internal`` location (e.g.
     ``/_protected``) whose ``alias`` points at that same managed-repo root.
 
-    Returns ``<internal_prefix>/<url-encoded relative path>``. Returns
-    ``None`` when the resolved path escapes ``managed_root`` (traversal via
-    ``..`` or an absolute path/name) - the security guard, so a crafted
-    stored path can never reach an arbitrary file. POSIX path semantics are
-    used deliberately: files are served from the Linux container regardless
-    of the caller's OS, so tests are stable cross-platform.
+    Returns ``<internal_prefix>/<url-encoded relative path>``, or ``None``
+    when the path escapes ``managed_root`` (see :func:`_managed_relpath`).
     """
-    root = posixpath.normpath(managed_root or "")
-    if not root or root in (".", "/"):
-        return None
     prefix = (internal_prefix or "").strip("/")
     if not prefix:
         return None
-    candidate = posixpath.normpath(
-        posixpath.join(root, file_path or "", file_name or ""))
-    # must be strictly *inside* the root (not the root dir itself)
-    if candidate == root or not candidate.startswith(root + "/"):
-        return None
-    rel = candidate[len(root) + 1:]
-    if not rel:
+    rel = _managed_relpath(managed_root, file_path, file_name)
+    if rel is None:
         return None
     return "/" + prefix + "/" + quote(rel)
+
+
+def managed_file_path(managed_root, file_path, file_name):
+    """On-disk path of an original file under a read-only mount of the
+    managed repository, or ``None`` if it would escape ``managed_root``.
+
+    Backs the gate's direct-read delivery (no NGINX in front), with the
+    same traversal guard as :func:`xaccel_internal_uri`.
+    """
+    rel = _managed_relpath(managed_root, file_path, file_name)
+    if rel is None:
+        return None
+    return posixpath.normpath(managed_root) + "/" + rel
 
 
 def _now():

@@ -299,6 +299,34 @@ def test_xaccel_uri_rejects_root_only_and_misconfig():
 
 
 # --------------------------------------------------------------------------
+# Direct-read path (no NGINX): same traversal guard as X-Accel
+# --------------------------------------------------------------------------
+def test_managed_file_path_basic():
+    assert store.managed_file_path(
+        "/OMERO/ManagedRepository", "Admin_52/2026-10/04/15-47-28.257/",
+        "REF00.png"
+    ) == "/OMERO/ManagedRepository/Admin_52/2026-10/04/15-47-28.257/REF00.png"
+
+
+def test_managed_file_path_keeps_spaces_unencoded():
+    # a filesystem path, not a URI: no percent-encoding
+    assert store.managed_file_path(
+        "/OMERO/MR/", "a b", "s d.svs") == "/OMERO/MR/a b/s d.svs"
+
+
+def test_managed_file_path_rejects_traversal_and_absolute_injection():
+    assert store.managed_file_path("/OMERO/MR", "../../etc", "passwd") is None
+    assert store.managed_file_path("/OMERO/MR", "/etc", "passwd") is None
+    assert store.managed_file_path("/OMERO/MR", "sub", "/etc/passwd") is None
+
+
+def test_managed_file_path_rejects_root_only_and_misconfig():
+    assert store.managed_file_path("/OMERO/MR", "", "") is None
+    assert store.managed_file_path("/", "x", "y") is None
+    assert store.managed_file_path("", "x", "y") is None
+
+
+# --------------------------------------------------------------------------
 # Container-level grant coverage (browsing an approved dataset / project)
 # --------------------------------------------------------------------------
 def test_scope_approval_dataset_grant_covers_only_that_dataset():

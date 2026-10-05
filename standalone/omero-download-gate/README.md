@@ -93,17 +93,40 @@ to create the steward account + groups.
 (`success`, `image_id`, `can_download`, `reason`, `has_pending_request`,
 `dataset_ids`) and additively returns `project_ids`.
 
-## Enforcement levels
+## Enforcement
 
-* **Web layer (default):** OMERO's native download endpoints
-  (`webgateway/archived_files`, `download_as`) stay blocked for the public
-  user via `omero.web.public.url_filter`; this plugin is the only download
-  path for public-facing data.
-* **Full enforcement:** to stop *authenticated* group members using native
-  download endpoints too, restrict `omero.policy.binary_access` on
-  OMERO.server and configure a privileged service account
-  (`DOWNLOAD_GATE_SERVICE_USER` / `_PASS`); the gate performs its own
-  approval check and streams via that account.
+Both layers are on in `omero-docker/docker-compose.yml`:
+
+* **Anonymous visitors:** `omero.web.public.url_filter` excludes every route
+  that streams an original file or exposes its paths/metadata
+  (`webgateway/archived_files`, `download_as`, `original_file_paths`;
+  `webclient/get_original_file`, `download_original_file`,
+  `download_orig_metadata`, `download_placeholder`).
+* **Authenticated users:** `omero.policy.binary_access=-read,+write,+image`
+  on OMERO.server refuses native original-file reads to anyone who cannot
+  update the file, i.e. everyone but its owner and full admins (`-write`
+  would refuse those too).
+
+The gate is therefore the only download path for everyone else, and it
+serves approved bytes **without** OMERO's RawFileStore, which the lockdown
+would refuse: via NGINX `X-Accel-Redirect` when `DOWNLOAD_GATE_XACCEL_ROOT`
+is set, otherwise from the read-only managed-repository mount at
+`DOWNLOAD_GATE_DIRECT_ROOT`. The BlitzGateway stream is the last resort and
+fails early with a clear 503 when the server refuses it.
+
+The service account only *reads* metadata across groups, so a light
+administrator holding no privileges is enough:
+`omero-docker/scripts/provision_iam.sh gate` creates one.
+
+## Associated-image guard
+
+`omero_download_gate.middleware.AssociatedImageGuard` (registered in
+`01-default-webapps.omero`) keeps scanner label and macro images from
+anonymous sessions. They share the slide's fileset and group, so OMERO
+permissions cannot hide them. Every route that resolves an image id
+returns 403 for them, and thumbnail batches drop them; logged-in users are
+unaffected. Names are looked up through the service account and cached for
+an hour. If the lookup fails the request is refused (503), never served.
 
 ## Configuration
 
@@ -113,16 +136,23 @@ to create the steward account + groups.
 | `DOWNLOAD_GATE_MAX_DOC_MB` | `25` | per-document size cap |
 | `DOWNLOAD_GATE_DEFAULT_APPROVERS` | _(unset)_ | comma/newline list of usernames/group names who approve **policy-less** datasets (admins always may) |
 | `DOWNLOAD_GATE_DEFAULT_EXPIRY_DAYS` | _(unset)_ | fallback grant expiry when neither the approver nor a dataset policy specifies one |
-| `DOWNLOAD_GATE_SERVICE_USER` | _(unset)_ | optional privileged streaming account |
+| `DOWNLOAD_GATE_SERVICE_USER` | _(unset)_ | cross-group read-only account (light admin, no privileges); required for out-of-group grants and the associated-image guard |
 | `DOWNLOAD_GATE_SERVICE_PASS` | _(unset)_ | its password |
+| `DOWNLOAD_GATE_DIRECT_ROOT` | _(unset)_ | read-only mount of the managed repository (e.g. `/OMERO/ManagedRepository`) for direct-read downloads |
+| `DOWNLOAD_GATE_XACCEL_ROOT` / `_INTERNAL` | _(unset)_ / `/_protected` | NGINX X-Accel offload (takes precedence over direct reads) |
 | `OMEROHOST` | `omeroserver` | server host for the service account |
 
 ## Tests
 
-`tests/test_store.py` — 27 offline unit tests (no OMERO/Django needed):
-request lifecycle, grant scope coverage (image/dataset/project), expiry,
-revocation, per-dataset policy CRUD + approver resolution, required-doc
-enforcement, audit log + dataset scoping, and legacy-JSON migration.
+Offline unit tests (no OMERO/Django needed), run with `python -m pytest tests/`:
+
+* `tests/test_store.py`: request lifecycle, grant scope coverage
+  (image/dataset/project), expiry, revocation, per-dataset policy CRUD +
+  approver resolution, required-doc enforcement, audit log + dataset
+  scoping, legacy-JSON migration, and the traversal guards behind X-Accel
+  and direct-read paths.
+* `tests/test_assoc.py`: the associated-image guard's rules (name rule,
+  session classification, image-id extraction per route, verdict cache).
 
 ```sh
 PYTHONPATH=. python -m pytest tests -q

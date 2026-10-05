@@ -24,24 +24,30 @@ membership. ``store`` stays pure and BlitzGateway-free so it unit-tests
 offline.
 
 OMERO's native download endpoints stay blocked for the public user via
-the ``omero.web.public.url_filter`` regex in docker-compose. For full
-enforcement against *authenticated* users, additionally restrict
-``omero.policy.binary_access`` on the server and set the
-DOWNLOAD_GATE_SERVICE_USER/PASS env vars so this plugin streams files
-through a privileged service account after its own approval check.
+the ``omero.web.public.url_filter`` regex in docker-compose, and for
+*authenticated* users by ``omero.policy.binary_access=-read,+write,+image``
+on the server, which leaves native original-file reads to owners and full
+admins only. The gate therefore serves approved bytes itself, without
+going through OMERO's RawFileStore: NGINX X-Accel-Redirect in production,
+or a read-only mount of the managed repository
+(``DOWNLOAD_GATE_DIRECT_ROOT``) otherwise. The service account
+(DOWNLOAD_GATE_SERVICE_USER/PASS) only needs to *read* metadata across
+groups, so a light administrator with no privileges is enough.
 """
 
+import itertools
 import logging
 import os
 from collections import namedtuple
 
 from django.conf import settings
-from django.http import (HttpResponse, JsonResponse, StreamingHttpResponse,
-                         Http404)
+from django.http import (FileResponse, HttpResponse, JsonResponse,
+                         StreamingHttpResponse, Http404)
 from django.shortcuts import render
 from omeroweb.webclient.decorators import login_required
 
 from . import store
+from .assoc import EXCLUDED_NAME_PARTS
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +60,8 @@ ALLOWED_DOC_EXTENSIONS = {
 
 # Associated slide images (scanner label / macro overview) carry no research
 # value and a label can show accession numbers, so access listings skip them
-# - the same rule as the landing page's EXCLUDED_NAME_PARTS.
-EXCLUDED_NAME_PARTS = ("label", "macro")
+# - EXCLUDED_NAME_PARTS (imported from .assoc, which the anonymous-visitor
+# guard middleware also uses) is the same rule as the landing page's.
 
 # OMERO's built-in groups never hold catalogue data.
 SYSTEM_GROUP_NAMES = ("system", "user", "guest")
@@ -107,10 +113,11 @@ def _service_connection():
     configured.
 
     Returns None when unset - the requesting user's own session is used
-    instead (sufficient while binary access is open at group level). The
-    connection queries across every group (``-1``): it exists to reach
-    data outside the requester's own groups. Switch it into an object's
-    group (:func:`_enter_object_group`) before streaming that object.
+    instead. The connection queries across every group (``-1``): it exists
+    to reach data outside the requester's own groups, and to name images
+    for the associated-image guard (:mod:`.middleware`). Switch it into an
+    object's group (:func:`_enter_object_group`) before streaming that
+    object.
     """
     user = os.environ.get("DOWNLOAD_GATE_SERVICE_USER")
     password = os.environ.get("DOWNLOAD_GATE_SERVICE_PASS")
@@ -1242,6 +1249,36 @@ def download_image(request, image_id, conn=None, **kwargs):
                     "X-Accel configured but file %s resolved outside the "
                     "root; falling back to streaming.", xtarget.getId())
 
+        # Direct read (no NGINX in front): serve the original from a
+        # read-only mount of the managed repository. Unlike the streaming
+        # fallback below, this never touches OMERO's RawFileStore, so the
+        # binary_access lockdown (owners + full admins only) does not
+        # apply - the approval check above is the gate.
+        droot = os.environ.get("DOWNLOAD_GATE_DIRECT_ROOT", "").strip()
+        if droot:
+            dtarget = _select_original_file(image, request.GET.get("file_id"))
+            dpath = (store.managed_file_path(droot, dtarget.getPath(),
+                                             dtarget.getName())
+                     if dtarget is not None else None)
+            if dpath and os.path.isfile(dpath):
+                store.record_audit(
+                    actor=_username(conn), action=store.ACTION_DOWNLOAD,
+                    target_type="image", target_id=image_id,
+                    detail="file=%s via=direct reason=%s"
+                    % (dtarget.getId(), reason),
+                    dataset_id=dataset_ids[0] if dataset_ids else None)
+                logger.info("Gated download (direct): user=%s image=%s "
+                            "file=%s", _username(conn), image_id,
+                            dtarget.getId())
+                return FileResponse(
+                    open(dpath, "rb"), as_attachment=True,
+                    filename=store.safe_filename(dtarget.getName()),
+                    content_type="application/octet-stream")
+            logger.warning(
+                "DOWNLOAD_GATE_DIRECT_ROOT is set but file %s is not on "
+                "that mount; falling back to streaming.",
+                dtarget.getId() if dtarget is not None else "?")
+
         # Streaming fallback: through the service account when one is
         # configured, or the one already open for an out-of-group image.
         if gateway is None:
@@ -1276,6 +1313,22 @@ def download_image(request, image_id, conn=None, **kwargs):
                               % (file_id, image_id), "bad_file", 404)
             target = matches[0]
 
+        # Pull the first chunk before committing to a 200: under the
+        # binary_access lockdown the server refuses this read for anyone
+        # but owners and full admins, and the user should get a clear error
+        # rather than a truncated file.
+        chunks = target.getFileInChunks(buf=1024 * 1024)
+        try:
+            first = next(chunks, b"")
+        except Exception:
+            logger.exception("Server refused to read file %s for the gate",
+                             target.getId())
+            return _error(
+                "The server refused to read this file for the download "
+                "gate. Ask an administrator to configure direct reads "
+                "(DOWNLOAD_GATE_DIRECT_ROOT) or X-Accel - see the gate "
+                "README.", "binary_access_denied", 503)
+
         store.record_audit(
             actor=_username(conn), action=store.ACTION_DOWNLOAD,
             target_type="image", target_id=image_id,
@@ -1284,8 +1337,7 @@ def download_image(request, image_id, conn=None, **kwargs):
         logger.info("Gated download: user=%s image=%s file=%s",
                     _username(conn), image_id, target.getId())
         response = StreamingHttpResponse(
-            _closing_iter(target.getFileInChunks(buf=1024 * 1024),
-                          gateway),
+            _closing_iter(itertools.chain([first], chunks), gateway),
             content_type="application/octet-stream")
         response["Content-Length"] = target.getSize()
         response["Content-Disposition"] = \
