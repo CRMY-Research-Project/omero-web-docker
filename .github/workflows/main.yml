@@ -90,3 +90,7 @@ jobs:
       - name: Download-gate store tests
         run: python -m pytest tests/ -q
         working-directory: standalone/omero-download-gate
+      # pure modules only (batch, jobs, filenames); views need OMERO.web
+      - name: Web-import tests
+        run: python -m pytest tests/ -q
+        working-directory: standalone/omero-webimport
