@@ -126,8 +126,13 @@ def docs_dir(request_id):
 
 
 def safe_filename(name):
-    """Reduce an uploaded filename to a safe basename."""
-    name = os.path.basename(name or "")
+    """Reduce an uploaded filename to a safe basename.
+
+    Both ``/`` and ``\\`` end a directory component whatever the server's
+    OS, since a browser on Windows may send a full ``C:\\...`` path; plain
+    ``os.path.basename`` would keep that path on the Linux container.
+    """
+    name = posixpath.basename((name or "").replace("\\", "/"))
     name = _UNSAFE_FILENAME_RE.sub("_", name)
     return name[:128] or "unnamed"
 
