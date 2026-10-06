@@ -31,7 +31,7 @@ from omeroweb.webclient.decorators import login_required
 
 import omero.model
 
-from . import batch, jobs
+from . import batch, filenames, jobs
 from .util.import_library import ImportLibrary
 
 logger = logging.getLogger(__name__)
@@ -61,12 +61,6 @@ def _error(message, code, status):
         {"success": False, "error": {"code": code, "message": message}},
         status=status,
     )
-
-
-def _safe_filename(name):
-    name = os.path.basename(name or "")
-    name = re.sub(r"[^A-Za-z0-9. _-]+", "_", name)
-    return name[:200] or "unnamed"
 
 
 def _resolve_dataset(request, conn):
@@ -295,7 +289,7 @@ def upload_chunk(request, conn=None, **kwargs):
 
     key = str(file_index)
     finfo = meta["files"].setdefault(key, {
-        "name": _safe_filename(request.POST.get("filename", "")),
+        "name": filenames.safe_filename(request.POST.get("filename", "")),
         "next_chunk": 0,
         "bytes": 0,
     })
