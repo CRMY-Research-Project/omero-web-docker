@@ -6,11 +6,11 @@ RUN mkdir /opt/setup
 WORKDIR /opt/setup
 ADD playbook.yml requirements.yml /opt/setup/
 
-RUN dnf -y install epel-release
-RUN dnf install -y glibc-langpack-en
+RUN dnf -y update && \
+    dnf -y install epel-release glibc-langpack-en ansible-core sudo ca-certificates && \
+    dnf clean all
 ENV LANG en_US.utf-8
 
-RUN dnf -y install ansible-core sudo
 RUN ansible-galaxy collection install ansible.posix
 RUN ansible-galaxy collection install community.general
 
