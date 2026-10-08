@@ -164,7 +164,7 @@
         detail = fmtBytes(e.importSent) + " of " + fmtBytes(size) + " into the OMERO repository";
         break;
       case "processing":
-        pct = 100; detail = "Reading the slide and building thumbnails…"; break;
+        pct = 100; detail = "Reading the slide and building thumbnails..."; break;
       case "done":
       case "failed":
       case "upload-failed":
@@ -177,8 +177,8 @@
       var many = e.imageIds.length > 1;
       p.detail.appendChild(h("a", {
         href: cfg.webclient + "?show=image-" + e.imageIds[0],
-        text: many ? "View " + e.imageIds.length + " images →"
-                   : "View image #" + e.imageIds[0] + " →"
+        text: many ? "View " + e.imageIds.length + " images"
+                   : "View image #" + e.imageIds[0]
       }));
     } else {
       p.detail.textContent = detail;
@@ -208,18 +208,18 @@
     var text;
     if (phase === "idle") {
       text = entries.length + (entries.length === 1 ? " file" : " files") +
-             " · " + fmtBytes(total);
+             ", " + fmtBytes(total);
     } else if (phase === "running" && entries.some(function (e) { return e.state === "uploading"; })) {
       var cur = entries.filter(function (e) { return e.state === "uploading"; })[0];
       text = "Uploading " + (entries.indexOf(cur) + 1) + " of " + entries.length +
-             " · " + fmtBytes(up) + " of " + fmtBytes(total) +
-             (rate.ema ? " · " + fmtBytes(rate.ema) + "/s" : "");
+             ", " + fmtBytes(up) + " of " + fmtBytes(total) +
+             (rate.ema ? ", " + fmtBytes(rate.ema) + "/s" : "");
     } else if (phase === "running") {
-      text = "Importing into OMERO · " + finished + " of " + entries.length + " finished";
+      text = "Importing into OMERO: " + finished + " of " + entries.length + " finished";
     } else {
       text = count("done") + " imported" +
-             (count("failed") ? " · " + count("failed") + " failed" : "") +
-             (count("upload-failed") ? " · " + count("upload-failed") + " not uploaded" : "");
+             (count("failed") ? ", " + count("failed") + " failed" : "") +
+             (count("upload-failed") ? ", " + count("upload-failed") + " not uploaded" : "");
     }
     el.summary.textContent = text;
   }
@@ -374,7 +374,7 @@
           failures += 1;
           if (failures >= POLL_GIVE_UP) {
             resolve({ status: "lost", error: "Lost contact with the server (" + err.message +
-                      "). The import may still finish — check the webclient." });
+                      "). The import may still finish; check the webclient." });
           } else {
             setTimeout(tick, POLL_MS);
           }
@@ -404,7 +404,7 @@
       var e = entries[i];
       if (e && e.state !== "upload-failed") {
         e.state = "upload-failed";
-        e.error = "The upload did not finish — add the file again.";
+        e.error = "The upload did not finish. Add the file again.";
         paintEntry(e);
       }
     });
@@ -446,12 +446,12 @@
     if (failed) parts.push(failed + " failed to import");
     if (notUp) parts.push(notUp + " did not upload");
     if (!parts.length) return;
-    var text = parts.join(" · ") + "." +
+    var text = parts.join(", ") + "." +
       (failed ? " Retry the failed files, or ask an administrator to check the server logs." : "") +
       (lastWarning ? " " + lastWarning : "");
     var kind = failed || notUp ? (done ? "warn" : "error") : "ok";
     showNotice(text, kind,
-               done ? h("a", { href: cfg.webclient, text: "Open the webclient →" }) : null);
+               done ? h("a", { href: cfg.webclient, text: "Open the webclient" }) : null);
   }
 
   async function run() {

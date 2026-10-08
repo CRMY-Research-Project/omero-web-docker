@@ -1,0 +1,145 @@
+/* CRM portal base: the look of the original CRM landing page (white
+   pages, the cyan accent, Inter, the navy footer), light theme only.
+   Shared by the download gate and the web import so they read as one
+   site with the landing page. The tokens are the DSA portal's
+   (omero-docker/dsa/portal/src/tokens.css, docs/portal-style.md); this
+   file has a twin in each plugin, so keep the copies in step. */
+
+/* ----- Inter, self-hosted (SIL Open Font License, ../fonts/Inter-OFL.txt) ----- */
+@font-face {
+  font-family: "Inter Variable"; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url("../fonts/inter-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+                 U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter Variable"; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url("../fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+                 U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  --font-sans: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+
+  /* ----- Colour (upstream app.css; text-bearing cyan darkened for WCAG AA) ----- */
+  --bg: #ffffff;
+  --surface: #ffffff;          /* cards, panels, dialogs */
+  --surface-2: #f8f9fa;        /* bands and insets */
+  --hover: #f1f1f1;            /* table row hover */
+  --text: #000000;
+  --heading: #2c3e50;          /* page titles */
+  --text-soft: #495057;        /* subtitles */
+  --text-muted: #666666;       /* hints, meta: 5.7:1 on white */
+  --border: #dddddd;
+  --border-strong: #cccccc;    /* inputs, outlined buttons, disabled fill */
+
+  --accent: #007e97;           /* upstream #00b4d8 darkened: 4.74:1 with white */
+  --accent-hover: #006578;     /* hover, and links on tinted grounds */
+  --accent-bright: #00b4d8;    /* upstream cyan as is: decorative lines only */
+  --accent-tint: #e1f5fe;      /* notes, tags */
+  --accent-wash: #f0f8ff;      /* menu hover */
+  --on-accent: #ffffff;
+  --link: var(--accent);
+  --focus: #007bff;            /* upstream focus blue: 3.98:1 on white */
+
+  --ok: #1e7e34;      --ok-tint: #e9f7ef;      --ok-line: #27ae60;
+  --wait: #8a5a00;    --wait-tint: #fef5e7;    --wait-line: #f39c12;
+  --danger: #c0392b;  --danger-hover: #a93226; --danger-tint: #fdecea;
+  --on-danger: #ffffff;
+
+  --footer: #2c3e50; --footer-text: #ecf0f1; --footer-rule: #3498db; --footer-hover: #85c1e9; --footer-bottom: #1a252f;
+
+  /* ----- Space, shape, depth, motion ----- */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+  --gutter: 100px;             /* page side margin: upstream nav's 20px + 80px */
+  --r: 5px; --r-lg: 8px; --r-pill: 30px;
+  --shadow-1: 0 2px 5px rgba(0, 0, 0, .1);
+  --shadow-2: 0 2px 10px rgba(0, 0, 0, .1);
+  --ease: ease; --dur-1: 120ms; --dur-2: 200ms; --dur-3: 300ms;
+
+  color-scheme: light;
+}
+@media (max-width: 1100px) { :root { --gutter: 24px; } }
+@media (max-width: 600px) { :root { --gutter: 16px; } }
+
+/* ----- Base ----- */
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+/* a column, so the footer sits at the bottom of short pages */
+body {
+  margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+  background: var(--bg); color: var(--text);
+  font-family: var(--font-sans); font-size: 16px; line-height: 1.5;
+}
+h1, h2, h3 { font-weight: 700; line-height: 1.2; }
+h1 { font-size: 32px; color: var(--heading); margin: 0 0 var(--sp-4); }
+h2 { font-size: 24px; color: var(--accent); }
+h3 { font-size: 18.72px; }
+a { color: var(--link); text-underline-offset: 2px; }
+a:hover { color: var(--accent-hover); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+code, .mono { font-family: var(--font-mono); font-size: .92em; }
+button, input, select, textarea { font: inherit; color: var(--text); }
+/* text fields mark focus as the upstream search box did: a blue border and glow */
+input:not([type="checkbox"], [type="radio"], [type="file"]):focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: none; border-color: var(--focus); box-shadow: 0 0 5px rgba(0, 123, 255, .5);
+}
+.visually-hidden {
+  position: absolute !important; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* ----- Header: the landing page's white nav bar (150px logo, bold links) ----- */
+.crm-header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3) var(--sp-5);
+  padding: 20px var(--gutter); background: var(--surface);
+}
+.crm-brand { display: inline-flex; }
+.crm-brand img { display: block; width: 150px; height: auto; }
+.crm-nav { display: flex; flex-wrap: wrap; gap: var(--sp-2) 20px; margin-left: auto; }
+.crm-nav a {
+  color: var(--text); font-weight: 700; text-decoration: none; padding: 5px 0; position: relative;
+  min-height: 32px; display: inline-flex; align-items: center;
+}
+/* hover underline is decoration in the bright cyan; the current page's marks state (3:1) */
+.crm-nav a::after {
+  content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: 0; background: var(--accent-bright);
+}
+.crm-nav a:hover::after { width: 100%; }
+.crm-nav a[aria-current="page"] { color: var(--accent); }
+.crm-nav a[aria-current="page"]::after { width: 100%; background: var(--accent); }
+@media (prefers-reduced-motion: no-preference) { .crm-nav a::after { transition: width var(--dur-3) var(--ease); } }
+
+/* ----- Footer: the landing page's navy footer and dark copyright bar ----- */
+.crm-footer { margin-top: auto; background: var(--footer); color: var(--footer-text); }
+.crm-footer-inner {
+  display: flex; flex-wrap: wrap; justify-content: space-around; max-width: 1600px; margin: 0 auto;
+  padding: var(--sp-3) 0 0;
+}
+.crm-footer section { flex: 1; min-width: 250px; margin-bottom: 30px; padding: 0 70px; }
+.crm-footer h2 { color: #ffffff; font-size: 18px; margin: 20px 0; padding-bottom: 10px; position: relative; }
+.crm-footer h2::after {
+  content: ""; position: absolute; left: 0; bottom: 0; width: min(300px, 100%); height: 2px; background: var(--footer-rule);
+}
+.crm-footer p { color: var(--footer-text); margin: 0 0 10px; }
+.crm-footer ul { list-style: none; padding: 0; margin: 0; }
+.crm-footer li { margin-bottom: 10px; }
+.crm-footer a { color: var(--footer-text); text-decoration: none; }
+.crm-footer a:hover { color: var(--footer-hover); }
+.crm-footer :focus-visible { outline-color: #ffffff; }
+.crm-footer-bottom { background: var(--footer-bottom); padding: 15px var(--sp-4); text-align: center; font-size: 14px; }
+.crm-footer-bottom p { margin: 0; color: #ffffff; }
+@media (max-width: 760px) {
+  .crm-nav { margin-left: 0; }
+  .crm-footer-inner { flex-direction: column; align-items: center; text-align: center; }
+  .crm-footer section { padding: 0 var(--sp-4); }
+  .crm-footer h2::after { left: 50%; transform: translateX(-50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation-duration: .01ms !important; }
+}

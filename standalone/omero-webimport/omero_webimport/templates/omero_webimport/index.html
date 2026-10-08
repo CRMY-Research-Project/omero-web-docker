@@ -3,9 +3,10 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Upload slides &middot; OMERO Web Import</title>
-        <!-- No external CDNs: OS font stacks from the portal design system
-             (docs/design-system.md), inline SVG, framework-free script. -->
+        <title>Upload slides | OMERO Web Import</title>
+        <!-- No external CDNs: Inter is self-hosted (crm-base.css), inline SVG,
+             framework-free script. -->
+        <link rel="stylesheet" type="text/css" href="{% static 'omero_webimport/css/crm-base.css' %}">
         <link rel="stylesheet" type="text/css" href="{% static 'omero_webimport/css/webimport.css' %}">
     </head>
     <body>
@@ -21,9 +22,19 @@
           "webclient": "{% url 'webindex' %}"
         }</script>
 
+        <header class="crm-header">
+            <a class="crm-brand" href="/omero_crm_landing_page/" aria-label="Portal home">
+                <img src="{% static 'omero_webimport/img/crm-logo.png' %}" alt="" width="218" height="101">
+            </a>
+            <nav class="crm-nav" aria-label="Main">
+                <a href="/omero_crm_landing_page/">Home</a>
+                <a href="/omero_download_gate/">Request access</a>
+                <a href="{% url 'omero_webimport_index' %}" aria-current="page">Upload slides</a>
+            </nav>
+        </header>
+
         <main class="page">
             <header class="masthead">
-                <p class="eyebrow">Web import</p>
                 <h1>Upload slides</h1>
                 <p class="lede">Send whole-slide images straight to OMERO. Large files travel in
                     resumable chunks, and every file becomes its own image.</p>
@@ -38,8 +49,8 @@
                         <path d="M40 27V13M34 19l6-6 6 6"/>
                     </svg>
                     <p class="drop-title">Drop slides here</p>
-                    <p id="drop-help" class="drop-help">or <span class="drop-browse">browse your files</span>
-                        &mdash; SVS, NDPI, SCN, TIFF, OME-TIFF and other Bio-Formats types</p>
+                    <p id="drop-help" class="drop-help">or <span class="drop-browse">browse your files</span>:
+                        SVS, NDPI, SCN, TIFF, OME-TIFF and other Bio-Formats types</p>
                     <input type="file" id="file-input" multiple hidden>
                 </div>
 
@@ -67,6 +78,29 @@
                 <div id="notice" class="notice" role="status" hidden></div>
             </section>
         </main>
+
+        <footer class="crm-footer">
+            <div class="crm-footer-inner">
+                <section aria-labelledby="footer-contact">
+                    <h2 id="footer-contact">Get in Touch</h2>
+                    <p>Cancer Research Malaysia 200001007481 (510087-M)</p>
+                    <p>+603 5650 9797 (9am to 5pm)</p>
+                    <p>Level 1, Subang Jaya Medical Centre South Tower, No. 1, Jalan SS 12/1A, 47500 Subang Jaya,
+                        Selangor Darul Ehsan.</p>
+                </section>
+                <section aria-labelledby="footer-explore">
+                    <h2 id="footer-explore">Explore</h2>
+                    <ul>
+                        <li><a href="/omero_crm_landing_page/">Home</a></li>
+                        <li><a href="/omero_download_gate/">Request access</a></li>
+                        <li><a href="{% url 'omero_webimport_index' %}">Upload slides</a></li>
+                    </ul>
+                </section>
+            </div>
+            <div class="crm-footer-bottom">
+                <p>&copy; {% now "Y" %} Cancer Research Malaysia. All rights reserved.</p>
+            </div>
+        </footer>
 
         <script src="{% static 'omero_webimport/js/webimport.js' %}"></script>
     </body>

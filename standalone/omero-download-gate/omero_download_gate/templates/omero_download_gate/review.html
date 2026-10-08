@@ -3,7 +3,9 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Data-access governance · Review</title>
+    <title>Data-access governance: Review</title>
+    <link rel="stylesheet" type="text/css"
+          href="{% static 'omero_download_gate/css/crm-base.css' %}">
     <link rel="stylesheet" type="text/css"
           href="{% static 'omero_download_gate/css/console.css' %}">
 </head>
@@ -22,6 +24,17 @@
     }</script>
     {{ doc_types|json_script:"gate-doctypes" }}
 
+    <header class="crm-header">
+        <a class="crm-brand" href="/omero_crm_landing_page/" aria-label="Portal home">
+            <img src="{% static 'omero_download_gate/img/crm-logo.png' %}" alt="" width="218" height="101">
+        </a>
+        <nav class="crm-nav" aria-label="Main">
+            <a href="/omero_crm_landing_page/">Home</a>
+            <a href="{% url 'omero_download_gate_index' %}">Request access</a>
+            <a href="/omero_webimport/">Upload slides</a>
+            <a href="{% url 'omero_download_gate_review' %}" aria-current="page">Governance console</a>
+        </nav>
+    </header>
     <main class="console">
         <header class="console-header">
             <div>
@@ -38,9 +51,7 @@
                         <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/>
                     </svg>
                 </button>
-                <button id="theme-toggle" class="btn-icon" type="button"
-                        aria-label="Toggle light or dark theme"></button>
-                <a class="grow-link" href="{% url 'omero_download_gate_index' %}">&larr; Downloads</a>
+                <a class="grow-link" href="{% url 'omero_download_gate_index' %}">Back to downloads</a>
             </div>
         </header>
 
@@ -179,6 +190,29 @@
             </div>
         </div>
     </div>
+
+    <footer class="crm-footer">
+        <div class="crm-footer-inner">
+            <section aria-labelledby="footer-contact">
+                <h2 id="footer-contact">Get in Touch</h2>
+                <p>Cancer Research Malaysia 200001007481 (510087-M)</p>
+                <p>+603 5650 9797 (9am to 5pm)</p>
+                <p>Level 1, Subang Jaya Medical Centre South Tower, No. 1, Jalan SS 12/1A, 47500 Subang Jaya,
+                    Selangor Darul Ehsan.</p>
+            </section>
+            <section aria-labelledby="footer-explore">
+                <h2 id="footer-explore">Explore</h2>
+                <ul>
+                    <li><a href="/omero_crm_landing_page/">Home</a></li>
+                    <li><a href="{% url 'omero_download_gate_index' %}">Request access</a></li>
+                    <li><a href="/omero_webimport/">Upload slides</a></li>
+                </ul>
+            </section>
+        </div>
+        <div class="crm-footer-bottom">
+            <p>&copy; {% now "Y" %} Cancer Research Malaysia. All rights reserved.</p>
+        </div>
+    </footer>
 
     <script src="{% static 'omero_download_gate/js/console.js' %}"></script>
 </body>

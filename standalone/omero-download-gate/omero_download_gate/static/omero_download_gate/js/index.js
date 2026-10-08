@@ -73,7 +73,7 @@
   }
 
   function fmtDate(iso) {
-    if (!iso) return "—";
+    if (!iso) return "-";
     var d = new Date(iso);
     return isNaN(d) ? iso : d.toLocaleDateString(undefined,
       { year: "numeric", month: "short", day: "numeric" });
@@ -131,14 +131,14 @@
   function setHint() {
     var text;
     if (picker.admin) {
-      text = "Administrators can already download every dataset — no request needed.";
+      text = "Administrators can already download every dataset, so no request is needed.";
     } else if (!picker.all.length) {
       text = "No datasets are listed for you yet. If you have a dataset ID, enter it instead.";
     } else {
       var open = picker.all.filter(function (d) { return d.access === "requestable"; }).length;
       text = open + " of " + picker.all.length + " listed datasets can be requested.";
       if (!picker.service) {
-        text += " Only your own groups are listed (the catalogue needs the portal's service account) — any other dataset can still be requested by ID.";
+        text += " Only your own groups are listed (the catalogue needs the portal's service account); any other dataset can still be requested by ID.";
       }
     }
     els.hint.textContent = text;
@@ -199,11 +199,11 @@
     });
     if (!found.length) {
       els.list.appendChild(h("li", { class: "picker-empty", role: "presentation",
-        text: raw ? "No dataset matches “" + raw + "”. You can still enter its ID."
+        text: raw ? "No dataset matches \"" + raw + "\". You can still enter its ID."
                   : "No datasets to show." }));
     } else if (found.length > shown.length) {
       els.list.appendChild(h("li", { class: "picker-more", role: "presentation",
-        text: (found.length - shown.length) + " more — keep typing to narrow the list." }));
+        text: (found.length - shown.length) + " more: keep typing to narrow the list." }));
     }
     picker.active = picker.options.length ? 0 : -1;
     paintActive();
@@ -303,7 +303,7 @@
     clear(els.docRows);
     els.docRows.hidden = !files.length;
     files.forEach(function (f, i) {
-      var options = [h("option", { value: "", text: "Document type…" })];
+      var options = [h("option", { value: "", text: "Document type..." })];
       docTypes.forEach(function (t) {
         options.push(h("option", { value: t, text: docLabel(t) + (req.indexOf(t) !== -1 ? " (required)" : "") }));
       });
@@ -369,7 +369,7 @@
       picker.manual = false;
       unchoose(false);
       setMode();
-      showMessage("Request submitted — a data steward will review it. Track it under My requests.", "ok");
+      showMessage("Request submitted. A data steward will review it; track it under My requests.", "ok");
       loadDatasets();
       loadRequests();
     }).catch(function (err) {
@@ -434,13 +434,13 @@
 
   function grantRow(g) {
     var label = g.name || (g.scope_type + " #" + g.scope_id);
-    var meta = "#" + g.scope_id + " · " + expiryText(g.expires_at);
+    var meta = "#" + g.scope_id + ", " + expiryText(g.expires_at);
     var li = h("li", { class: "access-item", id: "grant-" + g.id });
     if (!g.reachable) {
       li.appendChild(h("div", { class: "access-head" }, [
         chip("scope", g.scope_type),
         h("span", { class: "access-name", text: label }),
-        h("span", { class: "access-meta", text: "not reachable — ask an administrator" })
+        h("span", { class: "access-meta", text: "not reachable, ask an administrator" })
       ]));
       return li;
     }
@@ -466,7 +466,7 @@
     if (open || panel.dataset.loaded) return;
     panel.dataset.loaded = "1";
     clear(panel);
-    panel.appendChild(h("p", { class: "muted loading", text: "Loading…" }));
+    panel.appendChild(h("p", { class: "muted loading", text: "Loading..." }));
     getJson(browseUrl(scope, id)).then(function (data) {
       clear(panel);
       renderChildren(panel, data);
@@ -557,10 +557,10 @@
       var gid = grantsByRequest[r.id];
       if (gid) {
         row.appendChild(h("div", { class: "request-access" }, [
-          h("a", { href: "#grant-" + gid, text: "Open in My access →",
+          h("a", { href: "#grant-" + gid, text: "Open in My access",
                    // same-hash clicks fire no hashchange; open explicitly
                    onclick: function () { setTimeout(openFromHash, 0); } }),
-          h("span", { class: "muted", text: "  · access " + expiryText(r.expires_at) })
+          h("span", { class: "muted", text: " (access " + expiryText(r.expires_at) + ")" })
         ]));
       } else {
         row.appendChild(h("div", { class: "muted",

@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Download Access</title>
+    <link rel="stylesheet" type="text/css" href="{% static 'omero_download_gate/css/crm-base.css' %}">
     <link rel="stylesheet" type="text/css" href="{% static 'omero_download_gate/css/gate.css' %}">
 </head>
 <body>
@@ -21,9 +22,20 @@
     }</script>
     {{ doc_types|json_script:"gate-doctypes" }}
 
+    <header class="crm-header">
+        <a class="crm-brand" href="/omero_crm_landing_page/" aria-label="Portal home">
+            <img src="{% static 'omero_download_gate/img/crm-logo.png' %}" alt="" width="218" height="101">
+        </a>
+        <nav class="crm-nav" aria-label="Main">
+            <a href="/omero_crm_landing_page/">Home</a>
+            <a href="{% url 'omero_download_gate_index' %}" aria-current="page">Request access</a>
+            <a href="/omero_webimport/">Upload slides</a>
+            {% if can_review %}<a href="{% url 'omero_download_gate_review' %}">Governance console</a>{% endif %}
+        </nav>
+    </header>
+
     <div class="page-container">
-        <header>
-            <p class="eyebrow">Data access</p>
+        <header class="intro">
             <h1>Download Access</h1>
             <p>
                 Downloads of dataset images require approval. Choose a dataset,
@@ -31,7 +43,7 @@
                 proposal) and a data steward will review it.
             </p>
             {% if can_review %}
-            <p><a href="{% url 'omero_download_gate_review' %}">Reviewer: open the governance console &rarr;</a></p>
+            <p><a href="{% url 'omero_download_gate_review' %}">Reviewer: open the governance console</a></p>
             {% endif %}
         </header>
 
@@ -63,7 +75,7 @@
                             aria-labelledby="dataset-label" hidden></ul>
                         <div id="dataset-chosen" class="picker-chosen" hidden></div>
                     </div>
-                    <p class="picker-hint" id="dataset-hint" aria-live="polite">Loading datasets&hellip;</p>
+                    <p class="picker-hint" id="dataset-hint" aria-live="polite">Loading datasets...</p>
                     <button type="button" class="linkish" id="manual-toggle">Enter a dataset ID instead</button>
                 </div>
 
@@ -96,14 +108,37 @@
         <section class="card" id="access" aria-labelledby="access-title">
             <h2 id="access-title">My access</h2>
             <p class="muted card-lede">Everything an approval has opened to you. Expand a dataset or project to reach its images.</p>
-            <div id="access-list" aria-live="polite"><p class="muted">Loading&hellip;</p></div>
+            <div id="access-list" aria-live="polite"><p class="muted">Loading...</p></div>
         </section>
 
         <section class="card" aria-labelledby="requests-title">
             <h2 id="requests-title">My requests</h2>
-            <div id="requests-list" aria-live="polite"><p class="muted">Loading&hellip;</p></div>
+            <div id="requests-list" aria-live="polite"><p class="muted">Loading...</p></div>
         </section>
     </div>
+
+    <footer class="crm-footer">
+        <div class="crm-footer-inner">
+            <section aria-labelledby="footer-contact">
+                <h2 id="footer-contact">Get in Touch</h2>
+                <p>Cancer Research Malaysia 200001007481 (510087-M)</p>
+                <p>+603 5650 9797 (9am to 5pm)</p>
+                <p>Level 1, Subang Jaya Medical Centre South Tower, No. 1, Jalan SS 12/1A, 47500 Subang Jaya,
+                    Selangor Darul Ehsan.</p>
+            </section>
+            <section aria-labelledby="footer-explore">
+                <h2 id="footer-explore">Explore</h2>
+                <ul>
+                    <li><a href="/omero_crm_landing_page/">Home</a></li>
+                    <li><a href="{% url 'omero_download_gate_index' %}">Request access</a></li>
+                    <li><a href="/omero_webimport/">Upload slides</a></li>
+                </ul>
+            </section>
+        </div>
+        <div class="crm-footer-bottom">
+            <p>&copy; {% now "Y" %} Cancer Research Malaysia. All rights reserved.</p>
+        </div>
+    </footer>
 
     <script src="{% static 'omero_download_gate/js/index.js' %}"></script>
 </body>

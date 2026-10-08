@@ -1,5 +1,5 @@
 /* =========================================================================
-   WS-I Data-Access Governance Console  —  logic
+   WS-I Data-Access Governance Console: logic
    CSP-safe: loaded via <script src>, addEventListener only, no inline on*.
    All user-supplied strings enter the DOM via textContent (never innerHTML),
    so raw user text is never interpreted as markup.
@@ -36,7 +36,7 @@
                        "download", "policy_set"];
 
   // ---------------------------------------------------------------------
-  // Small DOM builder — attrs.text sets textContent (safe for user data);
+  // Small DOM builder: attrs.text sets textContent (safe for user data);
   // attrs.html is used ONLY with trusted constant SVG below.
   // ---------------------------------------------------------------------
   function h(tag, attrs, children) {
@@ -85,16 +85,14 @@
   var ICON = {
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>',
     download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>',
-    refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>',
-    sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
-    moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>'
+    refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>'
   };
 
   // ---------------------------------------------------------------------
   // Formatting / status mapping
   // ---------------------------------------------------------------------
   function fmtDate(iso) {
-    if (!iso) return "—";
+    if (!iso) return "-";
     var d = new Date(iso);
     if (isNaN(d.getTime())) return String(iso);
     return d.toLocaleString();
@@ -285,7 +283,7 @@
     var pendingBox = byId("pending-list");
     var reviewedBox = byId("reviewed-list");
     pendingBox.textContent = ""; reviewedBox.textContent = "";
-    pendingBox.appendChild(h("div", { class: "loading", text: "Loading requests…" }));
+    pendingBox.appendChild(h("div", { class: "loading", text: "Loading requests..." }));
     getJson(cfg.reviewList).then(function (data) {
       renderReqList(pendingBox, data.pending || [], true, "Nothing pending.");
       renderReqList(reviewedBox, data.reviewed || [], false, "Nothing reviewed yet.");
@@ -310,7 +308,7 @@
                       " for " + scopeText(req.target_type, req.target_id)
       }, [
         requestPill(req.status),
-        h("span", { class: "req-who", text: req.username || "—" }),
+        h("span", { class: "req-who", text: req.username || "-" }),
         h("span", { class: "req-target", text: scopeText(req.target_type, req.target_id) }),
         docCount ? h("span", { class: "doc-count",
                                text: docCount + (docCount === 1 ? " doc" : " docs") }) : null,
@@ -337,7 +335,7 @@
     var body = byId("drawer-body");
     clear(body);
     byId("drawer-title").textContent =
-      (req.username || "Request") + " · " + scopeText(req.target_type, req.target_id);
+      (req.username || "Request") + ", " + scopeText(req.target_type, req.target_id);
 
     // meta line
     body.appendChild(h("div", { class: "drawer-meta" }, [
@@ -410,7 +408,7 @@
   function buildOutcome(req) {
     var rows = [];
     rows.push(h("div", { class: "drawer-meta",
-      text: "Reviewed by " + (req.reviewed_by || "?") + " · " + fmtDate(req.reviewed_at) }));
+      text: "Reviewed by " + (req.reviewed_by || "?") + ", " + fmtDate(req.reviewed_at) }));
     if (req.review_note) {
       rows.push(h("p", { class: "muted", text: "Note: " + req.review_note }));
     }
@@ -471,7 +469,7 @@
 
     // note
     wrap.appendChild(h("div", { class: "section-label", text: "Note to requester" }));
-    var note = h("textarea", { placeholder: "Optional note…", id: "note-" + req.id });
+    var note = h("textarea", { placeholder: "Optional note...", id: "note-" + req.id });
     wrap.appendChild(note);
 
     // actions
@@ -506,36 +504,21 @@
         var dt = (byId("expdate-" + req.id) || {}).value;
         if (dt) params.expires_at = dt;
       }
-      // "default": send none — server applies policy default expiry.
+      // "default": send none; the server applies the policy's default expiry.
     }
 
     approveBtn.disabled = true; denyBtn.disabled = true;
     postForm(cfg.reviewAction, params).then(function () {
-      playStamp(action === "approve" ? "approve" : "deny", function () {
-        closeDrawer();
-        loadRequests();
-        toast(action === "approve" ? "Request approved." : "Request denied.",
-              action === "approve" ? "ok" : "error");
-      });
+      closeDrawer();
+      loadRequests();
+      toast(action === "approve" ? "Request approved." : "Request denied.",
+            action === "approve" ? "ok" : "error");
     }).catch(function (err) {
       approveBtn.disabled = false; denyBtn.disabled = false;
       toast(err.message, "error");
     });
   }
 
-  function playStamp(kind, done) {
-    var overlay = h("div", { class: "stamp" }, [
-      h("div", { class: "stamp-mark " + (kind === "approve" ? "is-approve" : "is-deny"),
-                 text: kind === "approve" ? "Approved" : "Denied" })
-    ]);
-    drawer.appendChild(overlay);
-    var reduce = window.matchMedia &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    setTimeout(function () {
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-      done();
-    }, reduce ? 500 : 900);
-  }
 
   // =====================================================================
   // Grants tab
@@ -543,7 +526,7 @@
   function loadGrants() {
     var box = byId("grants-table-wrap");
     clear(box);
-    box.appendChild(h("div", { class: "loading", text: "Loading grants…" }));
+    box.appendChild(h("div", { class: "loading", text: "Loading grants..." }));
     var principal = (byId("grants-principal") || {}).value || "";
     var activeOnly = byId("grants-active-only") && byId("grants-active-only").checked;
     var url = cfg.grants + "?active=" + (activeOnly ? "1" : "0") +
@@ -577,12 +560,12 @@
         rev.addEventListener("click", function () { openRevoke(g); });
         actionsTd.appendChild(rev);
       } else {
-        actionsTd.appendChild(h("span", { class: "faint mono", text: "—" }));
+        actionsTd.appendChild(h("span", { class: "faint mono", text: "-" }));
       }
       tbody.appendChild(h("tr", {}, [
-        cell("td", g.principal || "—"),
+        cell("td", g.principal || "-"),
         h("td", { class: "mono", text: scopeText(g.scope_type, g.scope_id) }),
-        cell("td", g.granted_by || "—"),
+        cell("td", g.granted_by || "-"),
         h("td", { class: "mono", text: fmtDate(g.granted_at) }),
         h("td", { class: "mono", text: g.expires_at ? fmtDate(g.expires_at) : "standing" }),
         h("td", {}, grantPill(g)),
@@ -609,7 +592,7 @@
     modalReturnFocus = document.activeElement;
     byId("modal-title").textContent = "Revoke grant";
     byId("modal-desc").textContent =
-      (g.principal || "principal") + " · " + scopeText(g.scope_type, g.scope_id);
+      (g.principal || "principal") + ", " + scopeText(g.scope_type, g.scope_id);
     byId("modal-reason").value = "";
     modalBackdrop.setAttribute("data-open", "true");
     modalKeydown = function (e) {
@@ -668,7 +651,7 @@
 
   function loadPolicy(id) {
     var status = byId("policy-status");
-    status.textContent = "Loading policy for dataset #" + id + "…";
+    status.textContent = "Loading policy for dataset #" + id + "...";
     getJson(policyUrlFor(id)).then(function (data) {
       currentPolicyDataset = data.dataset_id;
       byId("policy-form").hidden = false;
@@ -680,7 +663,7 @@
       da.appendChild(h("span", {
         text: (data.default_approvers && data.default_approvers.length)
           ? "Fallback approvers: " + data.default_approvers.join(", ")
-          : "No default approvers configured — only admins can approve." }));
+          : "No default approvers configured, so only admins can approve." }));
 
       byId("policy-approvers").value =
         p && p.approver_principals ? p.approver_principals.join(", ") : "";
@@ -696,7 +679,7 @@
       status.textContent = p
         ? "Editing policy for dataset #" + data.dataset_id +
           " (updated " + fmtDate(p.updated_at) + " by " + (p.updated_by || "?") + ")"
-        : "No policy yet for dataset #" + data.dataset_id + " — create one below.";
+        : "No policy yet for dataset #" + data.dataset_id + ". Create one below.";
     }).catch(function (err) {
       byId("policy-form").hidden = true;
       status.textContent = err.message;
@@ -714,7 +697,7 @@
     var checked = Array.prototype.filter.call(
       byId("policy-required-docs").querySelectorAll("input[type=checkbox]"),
       function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
-    // FormData needs repeated appends; postForm only does single — build here.
+    // FormData needs repeated appends and postForm only does single ones, so build it here.
     var fd = new FormData();
     fd.append("csrfmiddlewaretoken", CSRF);
     fd.append("approver_principals", params.approver_principals);
@@ -760,7 +743,7 @@
   function loadAudit() {
     var box = byId("audit-table-wrap");
     clear(box);
-    box.appendChild(h("div", { class: "loading", text: "Loading audit log…" }));
+    box.appendChild(h("div", { class: "loading", text: "Loading audit log..." }));
     var action = (byId("audit-action") || {}).value || "";
     var limit = (byId("audit-limit") || {}).value || "";
     var url = cfg.audit + "?limit=" + encodeURIComponent(limit || "200") +
@@ -786,12 +769,12 @@
     var tbody = h("tbody", {});
     events.forEach(function (ev) {
       tbody.appendChild(h("tr", {}, [
-        cell("td", ev.actor || "—"),
+        cell("td", ev.actor || "-"),
         h("td", {}, actionPill(ev.action)),
         cell("td", ev.target_type
-          ? scopeText(ev.target_type, ev.target_id) : (ev.target_id || "—")),
+          ? scopeText(ev.target_type, ev.target_id) : (ev.target_id || "-")),
         cell("td", ev.dataset_id === null || ev.dataset_id === undefined
-          ? "—" : "#" + ev.dataset_id),
+          ? "-" : "#" + ev.dataset_id),
         h("td", { class: "detail", text: ev.detail || "" }),
         cell("td", fmtDate(ev.ts))
       ]));
@@ -799,40 +782,6 @@
     box.appendChild(h("table", { class: "data-table audit-table" }, [thead, tbody]));
   }
 
-  // =====================================================================
-  // Theme toggle (uses the data-theme seam from the tokens block)
-  // =====================================================================
-  function initTheme() {
-    var btn = byId("theme-toggle");
-    if (!btn) return;
-    var stored = null;
-    try { stored = window.localStorage.getItem("gate-theme"); } catch (e) {}
-    if (stored === "dark" || stored === "light") {
-      document.documentElement.setAttribute("data-theme", stored);
-    }
-    function label() {
-      var isDark = document.documentElement.getAttribute("data-theme") === "dark" ||
-        (!document.documentElement.getAttribute("data-theme") &&
-         window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
-      btn.innerHTML = isDark ? ICON.sun : ICON.moon;
-      btn.setAttribute("aria-label", isDark ? "Switch to light theme" : "Switch to dark theme");
-    }
-    btn.addEventListener("click", function () {
-      var cur = document.documentElement.getAttribute("data-theme");
-      var next;
-      if (cur === "dark") next = "light";
-      else if (cur === "light") next = "dark";
-      else {
-        var prefersDark = window.matchMedia &&
-          window.matchMedia("(prefers-color-scheme: dark)").matches;
-        next = prefersDark ? "light" : "dark";
-      }
-      document.documentElement.setAttribute("data-theme", next);
-      try { window.localStorage.setItem("gate-theme", next); } catch (e) {}
-      label();
-    });
-    label();
-  }
 
   // =====================================================================
   // Init
@@ -843,7 +792,6 @@
     initTabs();
     initPolicies();
     initAudit();
-    initTheme();
 
     // Grants filters (principal + active-only) re-query on demand.
     var grantsApply = byId("grants-apply");
